@@ -1,0 +1,20 @@
+{
+    "compilerOptions": {
+      "strict": false,
+      "allowJs": true,
+      "checkJs": false,
+      "esModuleInterop": true,
+      "experimentalDecorators": true,
+      "forceConsistentCasingInFileNames": true,
+      "lib": ["ES2020", "ESNext.Array", "DOM"],
+      "module": "CommonJS",
+      "moduleResolution": "node",
+      "noImplicitThis": true,
+      "outDir": "dist",
+      "removeComments": true,
+      "resolveJsonModule": true,
+      "skipLibCheck": true,
+      "target": "ESNext"
+    },
+    "exclude": ["node_modules"]
+  }
