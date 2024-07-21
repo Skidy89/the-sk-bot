@@ -1,6 +1,6 @@
 import { worker } from "./core/worker"
-import { client, serialize } from "./core"
-import { getGroupAdmins, store } from "./lib/functions/functions"
+import { client } from "./core"
+import { getGroupAdmins } from "./lib/functions/functions"
 import { MessageSerialize } from "./types"
 import { config } from "./config"
 import chalk from "chalk"
@@ -136,6 +136,17 @@ export const welcomes = async (sock: client, m: proto.IWebMessageInfo) => {
         break
       }
     break
+    case chats.detect && proto.WebMessageInfo.StubType.GROUP_CHANGE_SUBJECT:
+      txt = `@${sender.split('@')[0]} cambio el nombre del grupo\nNuevo nombre: ${groupMetadata.subject}`
+      sock.sendMessage(m.key.remoteJid, { text: txt, mentions: mentionsString}, { quoted: fcontact})
+    break
+    case chats.detect && proto.WebMessageInfo.StubType.GROUP_CHANGE_ICON:
+      let picture: string
+      picture = await sock.profilePictureUrl(m.key?.remoteJid, "image")
+      txt = `@${sender.split('@')[0]} cambio la foto del grupo`
+      sock.sendImage(m.key.remoteJid, picture, txt, fcontact, {mentions: mentionsString})
+    break
+
     case chats.detect && proto.WebMessageInfo.StubType.GROUP_CHANGE_RESTRICT:
       switch(paramaters[0]) {
         case 'on':
