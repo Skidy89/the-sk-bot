@@ -12,7 +12,7 @@
   },
   "author": "skidy89",
   "type": "commonjs",
-  "license": "ISC",
+  "license": "MIT",
   "dependencies": {
     "@commonify/lowdb": "^3.0.0",
     "@hapi/boom": "^10.0.1",
