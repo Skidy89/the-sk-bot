@@ -76,7 +76,3 @@ declare type MessageSerialize = {
 
 
   declare type conn = Partial<WASocket>
-
-
-
-  declare type conn = Partial<WASocket>
