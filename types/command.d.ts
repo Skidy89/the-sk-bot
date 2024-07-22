@@ -1,5 +1,3 @@
-
-
 export declare type commands = {
     name: string
     description: string
@@ -11,6 +9,6 @@ export declare type commands = {
     privateOnly?: boolean
     isBotAdmin?: boolean
     needPing?: boolean
-    
+    errored?: boolean
     handle: Function
 }
