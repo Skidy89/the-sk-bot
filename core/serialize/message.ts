@@ -1,6 +1,6 @@
 import { client } from "../client"
 import { MessageSerialize } from "../../types"
-import { proto, WAMessage, downloadMediaMessage, AnyMessageContent } from "@whiskeysockets/baileys"
+import { proto, WAMessage, downloadMediaMessage, AnyMessageContent, getContentType } from "@whiskeysockets/baileys"
 type UserType = {
   registered: boolean
   name: string
@@ -71,28 +71,22 @@ export type DatabaseType = {
 
 
 export const message = async (sock: client, message: WAMessage): Promise<proto.IWebMessageInfo> => {
-    let M = proto.WebMessageInfo
     const m = <MessageSerialize>{}
     if (!message) return
     if (!m) return
     let protocolMessageKey
-    if (message.key) {
-        m.key = message.key
-        m.id = message.key.id
-        m.isBaileys = m.id.startsWith('BAE5') && m.id.length === 16
-        m.chat = message.key.remoteJid
-        m.fromMe = message.key.fromMe
-        m.isGroup = m.chat.endsWith('@g.us')
-        m.sender = m.fromMe ? (sock.user.id.split(":")[0]+'@s.whatsapp.net' || sock.user.id) : (message.key.participant || message.key.remoteJid)
-    }
+    m.key = message.key
     if (message.message) {
+        m.chat = m.key.remoteJid
+        m.isGroup = m.chat.endsWith('@g.us')
+        m.sender =  m.key.fromMe ? (sock.user.id.split(":")[0]+'@s.whatsapp.net' || sock.user.id) : (message.key.participant || message.key.remoteJid)
         m.message = message.message
-        m.type = Object.keys(message.message)[0]
+        m.type = getContentType(m.message)
         m.msg =  m.message[m.type]
         m.body = m.type === "conversation" ? m.message.conversation : m.type === "extendedTextMessage" ? m.message[m.type].text : m.type === "imageMessage" ? m.message[m.type].caption : m.type === "videoMessage" ? m.message[m.type].caption : m.type === "locationMessage" ? m.message[m.type].comment : m.type === "listResponseMessage" ? m.message[m.type].singleSelectReply.selectedRowId : m.type === "templateButtonReplyMessage" && m.message.templateButtonReplyMessage ? m.message[m.type].selectedId : m.type === "buttonsResponseMessage" ? m.message[m.type].selectedButtonId : m.type === "reactionMessage" ? m.message[m.type].text : m.type === "documentMessage" ? m.message[m.type]?.caption || "Document Message" : m.type === "audioMessage" ? "Audio Message" : m.type === "stickerMessage" ? "Sticker Message" : m.type === "contactMessage" ? "Contact Message" : m.type === "productMessage" ? "Product Message" : m.type === "pollCreationMessage" ? "Poll Message" : m.type === "protocolMessage" ? "Protocol Message" : m.type === "buttonsMessage" ? "Buttons Message" : m.type === "listMessage" ? "List Message" : "-"
         m.args = m.body.trim().split(/ +/).slice(1)
         m.arg = m.body.substring(m.body.indexOf(" ") + 1)
-        m.query = m.args.join(" ")
+
         if (m.type == 'protocolMessage' && m.msg.key) { 
             protocolMessageKey = m.msg.key 
             if (protocolMessageKey == 'status@broadcast') protocolMessageKey.remoteJid = m.chat 
@@ -103,25 +97,8 @@ export const message = async (sock: client, message: WAMessage): Promise<proto.I
         let quoted = m.quoted = m.msg.contextInfo ? m.msg.contextInfo.quotedMessage : null
         m.mentionedJid = m.msg.contextInfo ? m.msg.contextInfo.mentionedJid : []
         if (quoted) {
-          let type = Object.keys(quoted)[0]
-          let qMessage = quoted[type]
-          if (['productMessage'].includes(type)) {
-            type = Object.keys(qMessage)[0]
-            qMessage = qMessage[type]
-          }
-          if (typeof qMessage === 'string') qMessage = { text: qMessage }
-         
-            m.quoted.caption = m.message[m.type].contextInfo.quotedMessage
-            m.quoted.key = m.msg.contextInfo.stanzaId
             m.quoted.message = m.message[m.type].contextInfo.quotedMessage
-            m.quoted.type = Object.keys(m.message[m.type].contextInfo.quotedMessage)
-            m.quoted.id = m.msg.contextInfo.stanzaId
-            m.quoted.chat = m.msg.contextInfo.remoteJid || m.chat
-            m.quoted.isBaileys = m.msg.contextInfo.stanzaId.startsWith('BAE5') && m.msg.contextInfo.stanzaId.length === 16
-            m.quoted.sender =m.msg.contextInfo.participant.split(':')[0] || m.msg.contextInfo.participant
-            m.quoted.fromMe = m.msg.contextInfo.participant.split(':')[0] === (sock.user && sock.user.id)
-            m.quoted.text = qMessage.text || qMessage.caption || ''
-            m.quoted.mentionedJid = m.msg.contextInfo.mentionedJid || []
+            m.quoted.type = getContentType(m.quoted.message)
             m.quoted.delete = async () => {
               let vM = proto.WebMessageInfo.fromObject({
                 key: {
