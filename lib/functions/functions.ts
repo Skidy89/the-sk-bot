@@ -145,8 +145,8 @@ export const sleep = (ms: number) => {
     return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-export function pickRandom(list) {
-    return list[Math.floor(Math.random() * list.length)]
-  }
+export function pickRandom<T>(arr: T[]): T {
+    return arr[Math.floor(Math.random() * arr.length)];
+}
 const logger: any = pino({ level: 'silent', stream: 'store' })
 export const store = makeInMemoryStore({ logger })
