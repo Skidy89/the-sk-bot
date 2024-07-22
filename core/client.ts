@@ -1,17 +1,16 @@
 import { mediaUpload, WAMediaUpload } from "../types/"
 import { MessageSerialize } from "../types/"
-import makeWASocket, { ConnectionState, AuthenticationCreds, UserFacingSocketConfig, WACallEvent, Contact, toBuffer, downloadContentFromMessage, jidDecode, generateWAMessageFromContent, proto, BaileysEventMap, AnyMessageContent, WAProto, areJidsSameUser, prepareWAMessageMedia, GroupMetadata, useMultiFileAuthState, fetchLatestBaileysVersion, WAMessageKey } from "@whiskeysockets/baileys"
+import makeWASocket, { generateWAMessageContent, ConnectionState, AuthenticationCreds, UserFacingSocketConfig, WACallEvent, Contact, toBuffer, downloadContentFromMessage, jidDecode, generateWAMessageFromContent, proto, BaileysEventMap, AnyMessageContent, WAProto, areJidsSameUser, prepareWAMessageMedia } from "@whiskeysockets/baileys"
 import type { conn } from "../types/"
 import EventEmitter = require("events")
 import { TypedEventEmitter } from "typeorm"
 import { fromBuffer } from "file-type"
 import { Readable } from "stream"
-import { isURL, store } from "../lib/functions/functions"
+import { isURL } from "../lib/functions/functions"
 import fs from "fs"
 import ws from 'ws'
 import PhoneNumber from "awesome-phonenumber"
-import {serialize} from './index'
-import { handle, welcomes } from "../handler"
+import { message } from "./serialize"
 type chats = Record<string, any>
 
 
@@ -22,7 +21,6 @@ type events = {
   "CB:connect": (creds: Partial<ConnectionState>) => void
   "subbot.connect": (creds: Partial<ConnectionState>) => void
   "creds.update": (creds: Partial<AuthenticationCreds>) => void
-  "messages.delete": (creds: proto.IMessageKey) => void
   call: (call: WACallEvent) => void
 }
 
@@ -31,69 +29,55 @@ constructor() {
   super()
 }
 
-async connect(makeSocketConfig: UserFacingSocketConfig, path: string = './auth'): Promise<void> {
-  const conn = makeWASocket({...makeSocketConfig})
-  store.bind(conn.ev)
-  console.info = () => {}
-  conn.ev.on('messages.delete', async delet => {
-    this.emit('messages.delete', delet as any)
-  })
+async connect(makeSocketConfig: UserFacingSocketConfig): Promise<void> {
+  const conn: conn = makeWASocket({...makeSocketConfig})
+  
   conn.ev.on('messages.upsert', async ({messages}) => {
-    for (const message of messages) {
-      if (message.message?.protocolMessage?.type === 3 || message?.messageStubType) {
-          this.emit("group.update", message);
-      } else {
-          this.emit("message.upsert", message);
-      }
+    for (const m of messages) {
+      this.emit('message.upsert', m)}
+  })
+  conn.ev.on('call', async (calls) => {
+    for (const call of calls) {
+      this.emit('call', call)
     }
-    })
-    conn.ev.on('call', async (calls) => {
-      for (const call of calls) {
-        this.emit('call', call)
-      }
-    })
-    conn.ev.on('connection.update', async (up) => {
-      this.emit('CB:connect', up) 
-    })
-    conn.ev.on('creds.update', async (creds) => {
-      this.emit('creds.update', creds)
-    })
-    for(const ev of [
-              "messaging-history.set",
-              "chats.upsert",
-              "chats.update",
-              "chats.phoneNumberShare",
-              "chats.delete",
-              "presence.update",
-              "contacts.upsert",
-              "contacts.update",
-              "messages.update",
-              "messages.media-update",
-              "messages.reaction",
-              "message-receipt.update",
-              "groups.upsert",
-              "groups.update",
-              "group-participants.update",
-              "blocklist.set",
-              "blocklist.update",
-              "label.edit",
-              "labels.association",
-    ])
-    conn.ev?.removeAllListeners(ev as keyof BaileysEventMap)
-    for (const key of Object.keys(conn)) {
-      this[key as keyof client] = conn[key as keyof conn]
-      if(!["ev", "ws"].includes(key)) delete conn[key as keyof conn]}
-    
+  })
+  conn.ev.on('connection.update', async (up) => {
+    this.emit('CB:connect', up) 
+  })
+  conn.ev.on('creds.update', async (creds) => {
+    this.emit('creds.update', creds)
+  })
+  for(const ev of [
+            "messaging-history.set",
+            "chats.upsert",
+            "chats.update",
+            "chats.phoneNumberShare",
+            "chats.delete",
+            "presence.update",
+            "contacts.upsert",
+            "contacts.update",
+            "messages.delete",
+            "messages.update",
+            "messages.media-update",
+            "messages.reaction",
+            "message-receipt.update",
+            "groups.upsert",
+            "groups.update",
+            "group-participants.update",
+            "blocklist.set",
+            "blocklist.update",
+            "label.edit",
+            "labels.association",
+  ])
+  conn.ev?.removeAllListeners(ev as keyof BaileysEventMap)
+  for (const key of Object.keys(conn)) {
+    this[key as keyof client] = conn[key as keyof conn]
+    if(!["ev", "ws"].includes(key)) delete conn[key as keyof conn]}
   }
 ws: ws
 chats: chats = {}
-public sendText = async (jid: string, text: string, quoted?: proto.IWebMessageInfo, options?: Partial<AnyMessageContent>): Promise<proto.WebMessageInfo> => {
+public sendText = async (jid: string, text: string, quoted?: MessageSerialize, options?: Partial<AnyMessageContent>): Promise<proto.WebMessageInfo> => {
 return await this.sendMessage(jid, { text: text, ...options }, { quoted: quoted})
-}
-public async insertAllGroup() {
-  const groups = await this.groupFetchAllParticipating().catch((_) => null) || {};
-        for (const group in groups) this.chats[group] = {...(this.chats[group] || {}), id: group, subject: groups[group].subject, isChats: true, metadata: groups[group]};
-        return this.chats
 }
 public fakeReply = async (jid: string, text: string, tag: string, text2: string): Promise<string> => {
   const message = generateWAMessageFromContent(jid, {
@@ -118,7 +102,7 @@ public fakeReply = async (jid: string, text: string, tag: string, text2: string)
   })
 }
 public downloadMediaMessage = async (m: MessageSerialize): Promise<Buffer> => {
-       const mime = m.msg.mimetype || ""
+       const mime = m.message[m.type].mimetype || ""
         const messageType = mime.split("/")[0]
         const stream = await downloadContentFromMessage(m.message[m.type], messageType)
         return await toBuffer(stream)
@@ -135,13 +119,13 @@ public downloadAndSaveMediaMessage = async (m: MessageSerialize, folder: string,
   buffer = null
   return filePath
 }
-public decodeJid = async (jid: any) => {
+public decodeJid = async (jid: any): Promise<string> => {
   if (/:\d+@/gi.test(jid)) {
     const decode = jidDecode(jid) || ({} as any)
     return ((decode.user && decode.server && decode.user + "@" + decode.server) || jid).trim()
   } else return jid || jid.trim()
 }
-public sendImage = async (jid: string,  image: mediaUpload, caption: string, quoted: proto.IWebMessageInfo, options?: Partial<AnyMessageContent>): Promise<WAProto.WebMessageInfo> => {
+public sendImage = async (jid: string,  image: mediaUpload, caption: string, quoted: MessageSerialize, options?: Partial<AnyMessageContent>): Promise<WAProto.WebMessageInfo> => {
  let media: WAMediaUpload
  if (typeof image === 'string' && isURL(image)) {
      media = { url: image }
@@ -152,7 +136,7 @@ public sendImage = async (jid: string,  image: mediaUpload, caption: string, quo
  }
  return this.sendMessage(jid, { image: media, caption: caption, ...options }, { quoted: !quoted ? null : quoted })
 }
-public sendVideo = async (jid: string, video: mediaUpload, caption?: string, gifPlayback?: boolean, quoted?: proto.IWebMessageInfo, options?: Partial<AnyMessageContent>): Promise<WAProto.WebMessageInfo> => {
+public sendVideo = async (jid: string, video: mediaUpload, caption?: string, gifPlayback?: boolean, quoted?: MessageSerialize, options?: Partial<AnyMessageContent>): Promise<WAProto.WebMessageInfo> => {
   let media: WAMediaUpload
         if (typeof video === "string" && isURL(video)) {
             media = { url: video }
@@ -163,7 +147,7 @@ public sendVideo = async (jid: string, video: mediaUpload, caption?: string, gif
         }
         return this.sendMessage(jid, { video: media, caption: caption, gifPlayback: gifPlayback ? true : false, ...options }, { quoted: !quoted ? null : quoted })
 }
-public sendAudio = async (jid: string, audio: mediaUpload, ppt: boolean, mimetype: string, quoted: proto.IWebMessageInfo, options: Partial<AnyMessageContent>): Promise<WAProto.WebMessageInfo> => {
+public sendAudio = async (jid: string, audio: mediaUpload, ppt: boolean, mimetype: string, quoted: MessageSerialize, options: Partial<AnyMessageContent>): Promise<WAProto.WebMessageInfo> => {
   let media: WAMediaUpload
   if (typeof audio === "string" && isURL(audio)) {
       media = { url: audio }
@@ -239,14 +223,13 @@ public sendContact = async (
       { quoted }
   )
 }
-public parseMention = async (text: string) => {
+public parseMention = async (text: string): Promise<string> => {
   [...text.matchAll(/@(\d{0,16})/g)].map(v => v[1] + '@s.whatsapp.net')
   return text
 }
-public reply = async (jid: string, text: string, quoted: proto.IWebMessageInfo): Promise<WAProto.WebMessageInfo> => {
+public reply = async (jid: string, text: string, quoted: MessageSerialize): Promise<WAProto.WebMessageInfo> => {
 return await this.sendMessage(jid, { text: text }, { quoted: quoted })
 }
-
 
 public requestPairingCode: conn["requestPairingCode"]
 public register: conn["register"]
