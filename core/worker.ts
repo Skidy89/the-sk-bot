@@ -15,7 +15,9 @@ interface subbots {
     botname: string | undefined
     sockets: client
 }
-
+/**
+ *  that worker... Works
+ */
 export class worker  {
     ws: client
     commands: Map<string, commands> = new Map()

@@ -1,17 +1,16 @@
 import { mediaUpload, WAMediaUpload } from "../types/"
 import { MessageSerialize } from "../types/"
-import makeWASocket, { generateWAMessageContent, ConnectionState, AuthenticationCreds, UserFacingSocketConfig, WACallEvent, Contact, toBuffer, downloadContentFromMessage, jidDecode, generateWAMessageFromContent, proto, BaileysEventMap, AnyMessageContent, WAProto, areJidsSameUser, prepareWAMessageMedia } from "@whiskeysockets/baileys"
+import makeWASocket, { ConnectionState, AuthenticationCreds, UserFacingSocketConfig, WACallEvent, Contact, toBuffer, downloadContentFromMessage, jidDecode, generateWAMessageFromContent, proto, BaileysEventMap, AnyMessageContent, WAProto, areJidsSameUser, prepareWAMessageMedia, GroupMetadata, useMultiFileAuthState, fetchLatestBaileysVersion, WAMessageKey, BufferJSON } from "@whiskeysockets/baileys"
 import type { conn } from "../types/"
 import EventEmitter = require("events")
 import { TypedEventEmitter } from "typeorm"
 import { fromBuffer } from "file-type"
 import { Readable } from "stream"
-import { isURL } from "../lib/functions/functions"
+import { isURL, store } from "../lib/functions/functions"
 import fs from "fs"
 import ws from 'ws'
-import PhoneNumber from "awesome-phonenumber"
-import { message } from "./serialize"
-type chats = Record<string, any>
+import { parsePhoneNumber } from "awesome-phonenumber"
+import { format } from "util"
 
 
 type events = {
@@ -21,68 +20,107 @@ type events = {
   "CB:connect": (creds: Partial<ConnectionState>) => void
   "subbot.connect": (creds: Partial<ConnectionState>) => void
   "creds.update": (creds: Partial<AuthenticationCreds>) => void
+  "messages.delete": (creds: proto.IMessageKey) => void
   call: (call: WACallEvent) => void
 }
-
+/**
+ * the client for WAevents
+ * uses EventEmitter
+ */
 export class client extends (EventEmitter as new () => TypedEventEmitter<events>) {
 constructor() {
   super()
 }
-
+/**
+ * Like MakeWASocket
+ * @param makeSocketConfig 
+ * import makeWASocket from "@WhiskeySockets/baileys"
+ * see more on https://github.com/WhiskeySockets
+ */
 async connect(makeSocketConfig: UserFacingSocketConfig): Promise<void> {
-  const conn: conn = makeWASocket({...makeSocketConfig})
-  
+  const conn = makeWASocket({...makeSocketConfig})
+  store.bind(conn.ev)
+  console.info = () => {}
+  conn.ev.on('messages.delete', async delet => {
+    this.emit('messages.delete', delet as any)
+  })
   conn.ev.on('messages.upsert', async ({messages}) => {
-    for (const m of messages) {
-      this.emit('message.upsert', m)}
-  })
-  conn.ev.on('call', async (calls) => {
-    for (const call of calls) {
-      this.emit('call', call)
+    
+    for (const message of messages) {
+          if (message.messageStubParameters != undefined && message.messageStubParameters[0] === "Message absent from node") {
+        await this.sendMessageAck(JSON.parse(message.messageStubParameters[1], BufferJSON.reviver));
+      }
+      if (message.message?.protocolMessage?.type === 3 || message?.messageStubType) {
+          this.emit("group.update", message);
+      } else {
+          this.emit("message.upsert", message);
+      }
     }
-  })
-  conn.ev.on('connection.update', async (up) => {
-    this.emit('CB:connect', up) 
-  })
-  conn.ev.on('creds.update', async (creds) => {
-    this.emit('creds.update', creds)
-  })
-  for(const ev of [
-            "messaging-history.set",
-            "chats.upsert",
-            "chats.update",
-            "chats.phoneNumberShare",
-            "chats.delete",
-            "presence.update",
-            "contacts.upsert",
-            "contacts.update",
-            "messages.delete",
-            "messages.update",
-            "messages.media-update",
-            "messages.reaction",
-            "message-receipt.update",
-            "groups.upsert",
-            "groups.update",
-            "group-participants.update",
-            "blocklist.set",
-            "blocklist.update",
-            "label.edit",
-            "labels.association",
-  ])
-  conn.ev?.removeAllListeners(ev as keyof BaileysEventMap)
-  for (const key of Object.keys(conn)) {
-    this[key as keyof client] = conn[key as keyof conn]
-    if(!["ev", "ws"].includes(key)) delete conn[key as keyof conn]}
+    })
+    conn.ev.on('call', async (calls) => {
+      for (const call of calls) {
+        this.emit('call', call)
+      }
+    })
+    conn.ev.on('connection.update', async (up) => {
+      this.emit('CB:connect', up) 
+    })
+    conn.ev.on('creds.update', async (creds) => {
+      this.emit('creds.update', creds)
+    })
+    for(const ev of [
+              "messaging-history.set",
+              "chats.upsert",
+              "chats.update",
+              "chats.phoneNumberShare",
+              "chats.delete",
+              "presence.update",
+              "contacts.upsert",
+              "contacts.update",
+              "messages.update",
+              "messages.media-update",
+              "messages.reaction",
+              "message-receipt.update",
+              "groups.upsert",
+              "groups.update",
+              "group-participants.update",
+              "blocklist.set",
+              "blocklist.update",
+              "label.edit",
+              "labels.association",
+    ])
+    conn.ev?.removeAllListeners(ev as keyof BaileysEventMap)
+    for (const key of Object.keys(conn)) {
+      this[key as keyof client] = conn[key as keyof conn]
+      if(!["ev", "ws"].includes(key)) delete conn[key as keyof conn]}
+    
   }
+
 ws: ws
-chats: chats = {}
-public sendText = async (jid: string, text: string, quoted?: MessageSerialize, options?: Partial<AnyMessageContent>): Promise<proto.WebMessageInfo> => {
+
+/**
+ * send a text
+ * @param jid 
+ * @param text 
+ * @param quoted 
+ * @param options 
+ * @returns 
+ */
+public sendText = async (jid: string, text: string, quoted?: proto.IWebMessageInfo, options?: Partial<AnyMessageContent>): Promise<proto.WebMessageInfo> => {
 return await this.sendMessage(jid, { text: text, ...options }, { quoted: quoted})
 }
+/**
+ * fake replys
+ * @param jid 
+ * @param text 
+ * @param tag 
+ * @param text2 
+ * @returns 
+ */
 public fakeReply = async (jid: string, text: string, tag: string, text2: string): Promise<string> => {
   const message = generateWAMessageFromContent(jid, {
     extendedTextMessage: {
-        text: text2,
+        text: text,
         contextInfo: {
             participant: tag,
             quotedMessage: {
@@ -101,12 +139,24 @@ public fakeReply = async (jid: string, text: string, tag: string, text2: string)
       messageId: message.key.id,
   })
 }
+/**
+ * save downloads in memory
+ * @param m 
+ * @returns 
+ */
 public downloadMediaMessage = async (m: MessageSerialize): Promise<Buffer> => {
-       const mime = m.message[m.type].mimetype || ""
+       const mime = m.msg.mimetype || ""
         const messageType = mime.split("/")[0]
-        const stream = await downloadContentFromMessage(m.message[m.type], messageType)
+        const stream = await downloadContentFromMessage(m.msg, messageType)
         return await toBuffer(stream)
 }
+/**
+ * save media from message
+ * @param m 
+ * @param folder 
+ * @param attachExtension 
+ * @returns 
+ */
 public downloadAndSaveMediaMessage = async (m: MessageSerialize, folder: string, attachExtension:boolean = true): Promise<string> => {
   const mime = m.message[m.type].mimetype || ""
   const messageType = mime.split("/")[0]
@@ -119,13 +169,28 @@ public downloadAndSaveMediaMessage = async (m: MessageSerialize, folder: string,
   buffer = null
   return filePath
 }
-public decodeJid = async (jid: any): Promise<string> => {
+/**
+ * decode the jid from user
+ * @param jid 
+ * @returns xyz@s.whatsapp.net
+ */
+public decodeJid = async (jid: any) => {
   if (/:\d+@/gi.test(jid)) {
     const decode = jidDecode(jid) || ({} as any)
     return ((decode.user && decode.server && decode.user + "@" + decode.server) || jid).trim()
   } else return jid || jid.trim()
 }
-public sendImage = async (jid: string,  image: mediaUpload, caption: string, quoted: MessageSerialize, options?: Partial<AnyMessageContent>): Promise<WAProto.WebMessageInfo> => {
+/**
+ * send a image from buffer/url
+ * @param jid 
+ * @param image 
+ * @param caption 
+ * @param quoted 
+ * @param options 
+ * @returns 
+ * kinda bug
+ */
+public sendImage = async (jid: string,  image: mediaUpload, caption: string, quoted: proto.IWebMessageInfo, options?: Partial<AnyMessageContent>): Promise<WAProto.WebMessageInfo> => {
  let media: WAMediaUpload
  if (typeof image === 'string' && isURL(image)) {
      media = { url: image }
@@ -136,7 +201,18 @@ public sendImage = async (jid: string,  image: mediaUpload, caption: string, quo
  }
  return this.sendMessage(jid, { image: media, caption: caption, ...options }, { quoted: !quoted ? null : quoted })
 }
-public sendVideo = async (jid: string, video: mediaUpload, caption?: string, gifPlayback?: boolean, quoted?: MessageSerialize, options?: Partial<AnyMessageContent>): Promise<WAProto.WebMessageInfo> => {
+/**
+ * send a video from buffer/url
+ * @param jid 
+ * @param video 
+ * @param caption 
+ * @param gifPlayback 
+ * @param quoted 
+ * @param options 
+ * @returns 
+ * kinda bug too
+ */
+public sendVideo = async (jid: string, video: mediaUpload, caption?: string, gifPlayback?: boolean, quoted?: proto.IWebMessageInfo, options?: Partial<AnyMessageContent>): Promise<WAProto.WebMessageInfo> => {
   let media: WAMediaUpload
         if (typeof video === "string" && isURL(video)) {
             media = { url: video }
@@ -147,7 +223,17 @@ public sendVideo = async (jid: string, video: mediaUpload, caption?: string, gif
         }
         return this.sendMessage(jid, { video: media, caption: caption, gifPlayback: gifPlayback ? true : false, ...options }, { quoted: !quoted ? null : quoted })
 }
-public sendAudio = async (jid: string, audio: mediaUpload, ppt: boolean, mimetype: string, quoted: MessageSerialize, options: Partial<AnyMessageContent>): Promise<WAProto.WebMessageInfo> => {
+/**
+ * send a audio!!
+ * @param jid 
+ * @param audio 
+ * @param ppt 
+ * @param mimetype 
+ * @param quoted 
+ * @param options 
+ * @returns 
+ */
+public sendAudio = async (jid: string, audio: mediaUpload, ppt: boolean, mimetype: string, quoted: proto.IWebMessageInfo, options: Partial<AnyMessageContent>): Promise<WAProto.WebMessageInfo> => {
   let media: WAMediaUpload
   if (typeof audio === "string" && isURL(audio)) {
       media = { url: audio }
@@ -158,23 +244,22 @@ public sendAudio = async (jid: string, audio: mediaUpload, ppt: boolean, mimetyp
   }
   return this.sendMessage(jid, { audio: media, ptt: ppt ? true : false, mimetype: !mimetype ? "audio/mp4" : mimetype,  ...options }, { quoted: !quoted ? null : quoted })
 }
+/**
+ * send a reaction!!
+ * @param jid 
+ * @param emoji 
+ * @param m 
+ * @returns 
+ */
 public sendReaction = async (jid: string, emoji: string, m: proto.IMessageKey): Promise<WAProto.WebMessageInfo> => {
   return this.sendMessage(jid, { react: { text: emoji, key: m } })
 }
-public requestPhoneNumber = async (m: MessageSerialize) => {
-  const message = generateWAMessageFromContent(m.chat, {
-    requestPhoneNumberMessage: {
-        contextInfo: {
-            participant: m.sender,
-        },  
-    },
-}, {
-    userJid: m.sender
-})
-await this.relayMessage(m.chat, message.message, {
-    messageId: message.key.id,
-})
-}
+/**
+ * 
+ * @param jid 
+ * @param withoutContact 
+ * @returns 
+ */
 public getName = async (jid = '', withoutContact: boolean = true) => {
   jid =  await this.decodeJid(jid)
   withoutContact = withoutContact
@@ -183,7 +268,7 @@ public getName = async (jid = '', withoutContact: boolean = true) => {
     return new Promise(async (resolve) => {
       v = jid || {}
       if (!(v.name || v.subject)) v = await this.groupMetadata(jid) || {}
-      resolve(v.name || v.subject || PhoneNumber('+' + jid.replace('@s.whatsapp.net', '')).getNumber('international'))
+      resolve(v.name || v.subject || parsePhoneNumber('+' + jid.replace('@s.whatsapp.net', '')).getNumber('international'))
     })
   } else {
     v = jid === '0@s.whatsapp.net' ? {
@@ -193,8 +278,16 @@ public getName = async (jid = '', withoutContact: boolean = true) => {
     this.user :
               (jid || {})
   }
-  return (withoutContact ? '' : v.name) || v.subject || v.vname || v.notify || v.verifiedName || PhoneNumber('+' + jid.replace('@s.whatsapp.net', '')).getNumber('international')
+  return (withoutContact ? '' : v.name) || v.subject || v.vname || v.notify || v.verifiedName || parsePhoneNumber('+' + jid.replace('@s.whatsapp.net', '')).getNumber('international')
 }
+/**
+ * 
+ * @param jid 
+ * @param contacts 
+ * @param quoted 
+ * @param options 
+ * @returns 
+ */
 public sendContact = async (
   jid: string,
   contacts: string[],
@@ -205,7 +298,7 @@ public sendContact = async (
   for (let i of contacts) {
       const number = i.split("@")[0]
       const pushname = await this.getName(i)
-      const awesomeNumber = PhoneNumber("+" + number).getNumber("international")
+      const awesomeNumber = parsePhoneNumber("+" + number).getNumber("international")
       listContact.push({
           displayName: pushname,
           vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${pushname}\nFN:${pushname}\nitem1.TELwaid=${number}:${awesomeNumber}\nitem1.X-ABLabel:Mobile\nEND:VCARD`,
@@ -223,13 +316,14 @@ public sendContact = async (
       { quoted }
   )
 }
-public parseMention = async (text: string): Promise<string> => {
-  [...text.matchAll(/@(\d{0,16})/g)].map(v => v[1] + '@s.whatsapp.net')
-  return text
-}
-public reply = async (jid: string, text: string, quoted: MessageSerialize): Promise<WAProto.WebMessageInfo> => {
+/**
+ * its like normal one. useless
+ * @deprecated use sendText() instead
+ */
+public reply = async (jid: string, text: string, quoted: proto.IWebMessageInfo): Promise<WAProto.WebMessageInfo> => {
 return await this.sendMessage(jid, { text: text }, { quoted: quoted })
 }
+
 
 public requestPairingCode: conn["requestPairingCode"]
 public register: conn["register"]
