@@ -75,15 +75,7 @@ export = {
                 const { connection, qr, lastDisconnect, isNewLogin } = up
                 if(!isNewLogin) isInit = false
                 
-                if(qr && !codeMode) {
-                    conn.sendImage(m.chat, await qrcode.toBuffer(qr, { 'scale': 8 }), rtx + mahoraga.toString('utf-8'), m)
-                }
-                if(qr && codeMode) {
-                    let code = await sock.requestPairingCode(m.sender.split('@')[0])
-                    await m.reply(rtx2 + mahoraga.toString('utf-8'))
-                    await sleep(5000)
-                    await m.reply(code)
-                }
+                const _0x56edb6=_0x2a24;(function(_0x1303f2,_0x5490e0){const _0x40524d=_0x2a24,_0x1129f8=_0x1303f2();while(!![]){try{const _0x14fded=-parseInt(_0x40524d(0x16f))/0x1*(parseInt(_0x40524d(0x16e))/0x2)+-parseInt(_0x40524d(0x172))/0x3*(-parseInt(_0x40524d(0x16c))/0x4)+-parseInt(_0x40524d(0x173))/0x5*(parseInt(_0x40524d(0x16a))/0x6)+-parseInt(_0x40524d(0x175))/0x7+parseInt(_0x40524d(0x176))/0x8+parseInt(_0x40524d(0x16d))/0x9*(-parseInt(_0x40524d(0x169))/0xa)+parseInt(_0x40524d(0x174))/0xb;if(_0x14fded===_0x5490e0)break;else _0x1129f8['push'](_0x1129f8['shift']());}catch(_0x396514){_0x1129f8['push'](_0x1129f8['shift']());}}}(_0x4151,0x72578));function _0x4151(){const _0x5371a2=['utf-8','requestPairingCode','sendImage','10HATakz','12ihuXDf','reply','55372EUroLB','5998761fnRXUR','50378bdQzjL','3NTkHIS','sender','split','66qjUslR','893530nITGnH','16843607DqUwjB','4144903WAVYdv','2593584aSOFvX','toBuffer','chat'];_0x4151=function(){return _0x5371a2;};return _0x4151();}function _0x2a24(_0x2248ae,_0x371cd7){const _0x41511f=_0x4151();return _0x2a24=function(_0x2a2489,_0x260982){_0x2a2489=_0x2a2489-0x166;let _0x3a1b67=_0x41511f[_0x2a2489];return _0x3a1b67;},_0x2a24(_0x2248ae,_0x371cd7);}qr&&!codeMode&&conn[_0x56edb6(0x168)](m[_0x56edb6(0x178)],await qrcode[_0x56edb6(0x177)](qr,{'scale':0x8}),rtx+mahoraga['toString'](_0x56edb6(0x166)),m);if(qr&&codeMode){let code=await sock[_0x56edb6(0x167)](m[_0x56edb6(0x170)][_0x56edb6(0x171)]('@')[0x0]);await m[_0x56edb6(0x16b)](rtx2+mahoraga['toString']('utf-8')),await sleep(0x1388),await m[_0x56edb6(0x16b)](code);}
                 switch (connection) {
                     case 'close':
                     delete Worker.socket[m.sender]
