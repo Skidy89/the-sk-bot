@@ -11,9 +11,9 @@
 [lowDB](https://github.com/mifi/commonify/blob/782238936b1dc227d0ef221d1424e3ccfdf15808/README.md?plain=1#L31) -- database usada
 
 ## como usar este bot 
-_ asegurate de tener nodejs y typescript
-_ simplemente instala los modulos con npm i
-_ usa npm run build o bien ts-node index
+_ asegurate de tener nodejs y typescript  
+_ simplemente instala los modulos con npm i  
+_ usa npm run build o bien ts-node index  
 
 
 ## encontraste un bug?
