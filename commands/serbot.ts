@@ -1,3 +1,5 @@
+//bugs everywhere. be careul
+
 import qrcode from 'qrcode'
 import { client, serialize, worker } from "../core"
 import { MessageSerialize } from "../types"
