@@ -1,16 +1,15 @@
 import { mediaUpload, WAMediaUpload } from "../types/"
 import { MessageSerialize } from "../types/"
-import makeWASocket, { ConnectionState, AuthenticationCreds, UserFacingSocketConfig, WACallEvent, Contact, toBuffer, downloadContentFromMessage, jidDecode, generateWAMessageFromContent, proto, BaileysEventMap, AnyMessageContent, WAProto, areJidsSameUser, prepareWAMessageMedia, GroupMetadata, useMultiFileAuthState, fetchLatestBaileysVersion, WAMessageKey, BufferJSON } from "@whiskeysockets/baileys"
+import makeWASocket, { ConnectionState, AuthenticationCreds, UserFacingSocketConfig, WACallEvent, Contact, toBuffer, downloadContentFromMessage, jidDecode, generateWAMessageFromContent, proto, BaileysEventMap, AnyMessageContent, WAProto, areJidsSameUser, prepareWAMessageMedia, GroupMetadata, useMultiFileAuthState, fetchLatestBaileysVersion, WAMessageKey, BufferJSON, WASocket, Chat, ChatUpdate, extensionForMediaMessage } from "@whiskeysockets/baileys"
 import type { conn } from "../types/"
 import EventEmitter = require("events")
 import { TypedEventEmitter } from "typeorm"
 import { fromBuffer } from "file-type"
 import { Readable } from "stream"
-import { isURL, store } from "../lib/functions/functions"
-import fs from "fs"
+import { getRandom, isURL, store } from "../lib/functions/functions"
+import fs, { writeFile, writeFileSync } from "fs"
 import ws from 'ws'
-import { parsePhoneNumber } from "awesome-phonenumber"
-import { format } from "util"
+
 
 
 type events = {
@@ -21,82 +20,97 @@ type events = {
   "subbot.connect": (creds: Partial<ConnectionState>) => void
   "creds.update": (creds: Partial<AuthenticationCreds>) => void
   "messages.delete": (creds: proto.IMessageKey) => void
+  "messaging-history.set": (creds: { chats: Chat[], contacts: Contact[], messages: proto.IWebMessageInfo[], isLatest: boolean }) => void
+  'chats.delete': (chats: string[]) => void
+  'chats.upsert': (chats: Chat[]) => void
+  'chats.update': (chats: ChatUpdate[]) => void
   call: (call: WACallEvent) => void
 }
-/**
- * the client for WAevents
- * uses EventEmitter
- */
 export class client extends (EventEmitter as new () => TypedEventEmitter<events>) {
-constructor() {
-  super()
-}
-/**
- * Like MakeWASocket
- * @param makeSocketConfig 
- * import makeWASocket from "@WhiskeySockets/baileys"
- * see more on https://github.com/WhiskeySockets
- */
-async connect(makeSocketConfig: UserFacingSocketConfig): Promise<void> {
-  const conn = makeWASocket({...makeSocketConfig})
-  store.bind(conn.ev)
-  console.info = () => {}
-  conn.ev.on('messages.delete', async delet => {
-    this.emit('messages.delete', delet as any)
-  })
-  conn.ev.on('messages.upsert', async ({messages}) => {
-    
-    for (const message of messages) {
-          if (message.messageStubParameters != undefined && message.messageStubParameters[0] === "Message absent from node") {
-        await this.sendMessageAck(JSON.parse(message.messageStubParameters[1], BufferJSON.reviver));
+
+  /**
+   * Initializes a new instance of the client class.
+   *
+   * This constructor calls the constructor of the parent class (EventEmitter)
+   * to initialize the event emitter functionality.
+   */
+  constructor() {
+    super()
+  }
+  /**
+   * Connects to the server using the provided configuration.
+   *
+   * @param {UserFacingSocketConfig} config - The configuration for the connection.
+   * @return {Promise<void>} - A promise that resolves when the connection is established.
+   */
+  async connect(config: UserFacingSocketConfig): Promise<void> {
+    const conn: Partial<WASocket> = makeWASocket(config)
+    store.bind(conn.ev)
+    conn.ev.on('messages.delete', async delet => {
+      this.emit('messages.delete', delet as proto.IMessageKey)
+    })
+    conn.ev.on('messages.upsert', async ({messages}) => {    
+      for (const message of messages) {
+        console.log(message)
+        if (message.messageStubParameters != undefined && message.messageStubParameters[0] === "Message absent from node") {
+          await this.sendMessageAck(JSON.parse(message.messageStubParameters[1], BufferJSON.reviver))
+        }
+        if (message.message?.protocolMessage?.type === 3 || message?.messageStubType) {
+            this.emit("group.update", message)
+        } else {
+            this.emit("message.upsert", message)
+        }
       }
-      if (message.message?.protocolMessage?.type === 3 || message?.messageStubType) {
-          this.emit("group.update", message);
-      } else {
-          this.emit("message.upsert", message);
-      }
-    }
-    })
-    conn.ev.on('call', async (calls) => {
-      for (const call of calls) {
-        this.emit('call', call)
-      }
-    })
-    conn.ev.on('connection.update', async (up) => {
-      this.emit('CB:connect', up) 
-    })
-    conn.ev.on('creds.update', async (creds) => {
-      this.emit('creds.update', creds)
-    })
-    for(const ev of [
-              "messaging-history.set",
-              "chats.upsert",
-              "chats.update",
-              "chats.phoneNumberShare",
-              "chats.delete",
-              "presence.update",
-              "contacts.upsert",
-              "contacts.update",
-              "messages.update",
-              "messages.media-update",
-              "messages.reaction",
-              "message-receipt.update",
-              "groups.upsert",
-              "groups.update",
-              "group-participants.update",
-              "blocklist.set",
-              "blocklist.update",
-              "label.edit",
-              "labels.association",
-    ])
-    conn.ev?.removeAllListeners(ev as keyof BaileysEventMap)
-    for (const key of Object.keys(conn)) {
-      this[key as keyof client] = conn[key as keyof conn]
-      if(!["ev", "ws"].includes(key)) delete conn[key as keyof conn]}
-    
+      })
+      conn.ev.on('call', async (calls) => {
+        for (const call of calls) {
+          this.emit('call', call)
+        }
+      })
+      conn.ev.on('connection.update', async (up) => {
+        this.emit('CB:connect', up) 
+      })
+      conn.ev.on('creds.update', async (creds) => {
+        this.emit('creds.update', creds)
+      })
+      conn.ev.on('messaging-history.set', async (up) => {
+        this.emit('messaging-history.set', up)
+      })
+      conn.ev.on('chats.delete', async (up) => {
+        this.emit('chats.delete', up)
+      })
+      conn.ev.on('chats.upsert', async (up) => {
+        this.emit('chats.upsert', up)
+      })
+      conn.ev.on('chats.update', async (up) => {
+        this.emit('chats.update', up)
+      })
+      for(const ev of [
+                "chats.phoneNumberShare",
+                "presence.update",
+                "contacts.upsert",
+                "contacts.update",
+                "messages.update",
+                "messages.media-update",
+                "messages.reaction",
+                "message-receipt.update",
+                "groups.upsert",
+                "groups.update",
+                "group-participants.update",
+                "blocklist.set",
+                "blocklist.update",
+                "label.edit",
+                "labels.association",
+      ])
+      conn.ev?.removeAllListeners(ev as keyof BaileysEventMap)
+      for (const key of Object.keys(conn)) {
+        this[key as keyof client] = conn[key as keyof conn]
+        if(!["ev", "ws"].includes(key)) delete conn[key as keyof conn]}
+
   }
 
-ws: ws
+
+  ws: ws
 
 /**
  * send a text
@@ -106,8 +120,8 @@ ws: ws
  * @param options 
  * @returns 
  */
-public sendText = async (jid: string, text: string, quoted?: proto.IWebMessageInfo, options?: Partial<AnyMessageContent>): Promise<proto.WebMessageInfo> => {
-return await this.sendMessage(jid, { text: text, ...options }, { quoted: quoted})
+public sendText =  (jid: string, text: string, quoted?: proto.IWebMessageInfo, options?: Partial<AnyMessageContent>): Promise<proto.WebMessageInfo> => {
+return this.sendMessage(jid, { text: text, ...options }, { quoted: quoted})
 }
 /**
  * fake replys
@@ -144,10 +158,10 @@ public fakeReply = async (jid: string, text: string, tag: string, text2: string)
  * @param m 
  * @returns 
  */
-public downloadMediaMessage = async (m: MessageSerialize): Promise<Buffer> => {
-       const mime = m.msg.mimetype || ""
-        const messageType = mime.split("/")[0]
-        const stream = await downloadContentFromMessage(m.msg, messageType)
+public downloadMediaMessage = async (m: MessageSerialize) => {
+       const mime = m?.message[m.type]?.mimetype || ""
+        const messageType = mime?.split("/")[0]
+        const stream = await downloadContentFromMessage(m.message[m.type], messageType)
         return await toBuffer(stream)
 }
 /**
@@ -157,24 +171,29 @@ public downloadMediaMessage = async (m: MessageSerialize): Promise<Buffer> => {
  * @param attachExtension 
  * @returns 
  */
-public downloadAndSaveMediaMessage = async (m: MessageSerialize, folder: string, attachExtension:boolean = true): Promise<string> => {
-  const mime = m.message[m.type].mimetype || ""
-  const messageType = mime.split("/")[0]
-  const pathfile = folder + `/${m.sender.split("@")[0]}_${Date.now()}`
-  const stream = await downloadContentFromMessage(m.message[m.type], messageType)
-  let buffer = await toBuffer(stream)
-  const type = await fromBuffer(buffer)
-  const filePath = attachExtension ? pathfile + "." + type.ext : pathfile
-  fs.writeFileSync(filePath, buffer)
-  buffer = null
+public downloadAndSaveMediaMessage = async (m: MessageSerialize, folder: string = "./media", attachExtension:boolean = true): Promise<string> => {
+  if (!fs.existsSync(folder)) fs.mkdirSync(folder)
+  const mime = m?.message[m.type]?.mimetype || "";
+  const messageType = mime.split("/")[0];
+  const pathfile = folder + `/${getRandom(1321)}_${Date.now()}`;
+  const stream = await downloadContentFromMessage(m.message[m.type], messageType);
+  let buffer = await toBuffer(stream);
+  const type = await fromBuffer(buffer);
+  const filePath = attachExtension ? pathfile + "." + type.ext : pathfile;
+  fs.writeFileSync(filePath, buffer);
+  buffer = null;
   return filePath
 }
+
+  
+
+
 /**
  * decode the jid from user
  * @param jid 
  * @returns xyz@s.whatsapp.net
  */
-public decodeJid = async (jid: any) => {
+public decodeJid =  (jid: any) => {
   if (/:\d+@/gi.test(jid)) {
     const decode = jidDecode(jid) || ({} as any)
     return ((decode.user && decode.server && decode.user + "@" + decode.server) || jid).trim()
@@ -190,7 +209,7 @@ public decodeJid = async (jid: any) => {
  * @returns 
  * kinda bug
  */
-public sendImage = async (jid: string,  image: mediaUpload, caption: string, quoted: proto.IWebMessageInfo, options?: Partial<AnyMessageContent>): Promise<WAProto.WebMessageInfo> => {
+public sendImage =  (jid: string,  image: mediaUpload, caption: string, quoted: proto.IWebMessageInfo, options?: Partial<AnyMessageContent>): Promise<WAProto.WebMessageInfo> => {
  let media: WAMediaUpload
  if (typeof image === 'string' && isURL(image)) {
      media = { url: image }
@@ -212,7 +231,7 @@ public sendImage = async (jid: string,  image: mediaUpload, caption: string, quo
  * @returns 
  * kinda bug too
  */
-public sendVideo = async (jid: string, video: mediaUpload, caption?: string, gifPlayback?: boolean, quoted?: proto.IWebMessageInfo, options?: Partial<AnyMessageContent>): Promise<WAProto.WebMessageInfo> => {
+public sendVideo =  (jid: string, video: mediaUpload, caption?: string, gifPlayback?: boolean, quoted?: proto.IWebMessageInfo, options?: Partial<AnyMessageContent>): Promise<WAProto.WebMessageInfo> => {
   let media: WAMediaUpload
         if (typeof video === "string" && isURL(video)) {
             media = { url: video }
@@ -233,7 +252,7 @@ public sendVideo = async (jid: string, video: mediaUpload, caption?: string, gif
  * @param options 
  * @returns 
  */
-public sendAudio = async (jid: string, audio: mediaUpload, ppt: boolean, mimetype: string, quoted: proto.IWebMessageInfo, options: Partial<AnyMessageContent>): Promise<WAProto.WebMessageInfo> => {
+public sendAudio = (jid: string, audio: mediaUpload, ppt: boolean, mimetype: string, quoted: proto.IWebMessageInfo, options: Partial<AnyMessageContent>): Promise<WAProto.WebMessageInfo> => {
   let media: WAMediaUpload
   if (typeof audio === "string" && isURL(audio)) {
       media = { url: audio }
@@ -251,79 +270,24 @@ public sendAudio = async (jid: string, audio: mediaUpload, ppt: boolean, mimetyp
  * @param m 
  * @returns 
  */
-public sendReaction = async (jid: string, emoji: string, m: proto.IMessageKey): Promise<WAProto.WebMessageInfo> => {
+public sendReaction = (jid: string, emoji: string, m: proto.IMessageKey): Promise<WAProto.WebMessageInfo> => {
   return this.sendMessage(jid, { react: { text: emoji, key: m } })
 }
+
+
 /**
- * 
- * @param jid 
- * @param withoutContact 
- * @returns 
- */
-public getName = async (jid = '', withoutContact: boolean = true) => {
-  jid =  await this.decodeJid(jid)
-  withoutContact = withoutContact
-  let v
-  if (jid.endsWith('@g.us')) {
-    return new Promise(async (resolve) => {
-      v = jid || {}
-      if (!(v.name || v.subject)) v = await this.groupMetadata(jid) || {}
-      resolve(v.name || v.subject || parsePhoneNumber('+' + jid.replace('@s.whatsapp.net', '')).getNumber('international'))
-    })
-  } else {
-    v = jid === '0@s.whatsapp.net' ? {
-      jid,
-      vname: 'WhatsApp',
-    } : areJidsSameUser(jid, this.user.id) ?
-    this.user :
-              (jid || {})
-  }
-  return (withoutContact ? '' : v.name) || v.subject || v.vname || v.notify || v.verifiedName || parsePhoneNumber('+' + jid.replace('@s.whatsapp.net', '')).getNumber('international')
-}
-/**
- * 
- * @param jid 
- * @param contacts 
- * @param quoted 
- * @param options 
- * @returns 
- */
-public sendContact = async (
-  jid: string,
-  contacts: string[],
-  quoted?: MessageSerialize,
-  options?: Partial<AnyMessageContent>
-): Promise<WAProto.WebMessageInfo> => {
-  const listContact = []
-  for (let i of contacts) {
-      const number = i.split("@")[0]
-      const pushname = await this.getName(i)
-      const awesomeNumber = parsePhoneNumber("+" + number).getNumber("international")
-      listContact.push({
-          displayName: pushname,
-          vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${pushname}\nFN:${pushname}\nitem1.TELwaid=${number}:${awesomeNumber}\nitem1.X-ABLabel:Mobile\nEND:VCARD`,
-      })
-  }
-  return this.sendMessage(
-      jid,
-      {
-          contacts: {
-              displayName: `${listContact.length} contacto`,
-              contacts: listContact,
-          },
-          ...options,
-      },
-      { quoted }
-  )
-}
-/**
- * its like normal one. useless
- * @deprecated use sendText() instead
+ * @deprecated This function is deprecated. Use `sendReply` instead.
+ * Sends a reply message to the specified chat or user.
+ *
+ * @param {string} text - The text of the reply message.
+ * @param {string} [jid] - The JID of the chat or user to send the reply to. If not provided, the reply will be sent to the chat of the original message.
+ * @param {MessageSerialize} [quoted] - The quoted message to include in the reply.
+ * @param {Partial<AnyMessageContent>} [options] - Additional options for the reply message.
+ * @return {Promise<proto.WebMessageInfo>} - A promise that resolves with the information of the sent reply message.
  */
 public reply = async (jid: string, text: string, quoted: proto.IWebMessageInfo): Promise<WAProto.WebMessageInfo> => {
 return await this.sendMessage(jid, { text: text }, { quoted: quoted })
 }
-
 
 public requestPairingCode: conn["requestPairingCode"]
 public register: conn["register"]
@@ -414,6 +378,5 @@ public onUnexpectedError: conn["onUnexpectedError"]
 public uploadPreKeys: conn["uploadPreKeys"]
 public uploadPreKeysToServerIfRequired: conn["uploadPreKeysToServerIfRequired"]
 public waitForConnectionUpdate: conn["waitForConnectionUpdate"]
-
 
 }
