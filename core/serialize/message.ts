@@ -1,6 +1,7 @@
 import { client } from "../client"
 import { MessageSerialize } from "../../types"
-import { proto, WAMessage, downloadMediaMessage, AnyMessageContent, getContentType } from "@whiskeysockets/baileys"
+import { proto, WAMessage, downloadMediaMessage, AnyMessageContent, getContentType, MessageType } from "@whiskeysockets/baileys"
+
 type UserType = {
   registered: boolean
   name: string
@@ -50,6 +51,7 @@ type ChatType = {
   antiFake: boolean
   antiArabe: boolean
   detect: boolean
+  welcomeMessage: string
 }
 
 type SettingType = {
@@ -69,7 +71,12 @@ export type DatabaseType = {
   sticker: any
 }
 
-
+/**
+ * parse the message for easy use
+ * @param sock WASocket
+ * @param message WAMessage
+ * @returns 
+ */
 export const message = async (sock: client, message: WAMessage): Promise<proto.IWebMessageInfo> => {
     const m = <MessageSerialize>{}
     if (!message) return
@@ -81,48 +88,84 @@ export const message = async (sock: client, message: WAMessage): Promise<proto.I
         m.isGroup = m.chat.endsWith('@g.us')
         m.sender =  m.key.fromMe ? (sock.user.id.split(":")[0]+'@s.whatsapp.net' || sock.user.id) : (message.key.participant || message.key.remoteJid)
         m.message = message.message
-        m.type = getContentType(m.message)
-        m.msg =  m.message[m.type]
-        m.body = m.type === "conversation" ? m.message.conversation : m.type === "extendedTextMessage" ? m.message[m.type].text : m.type === "imageMessage" ? m.message[m.type].caption : m.type === "videoMessage" ? m.message[m.type].caption : m.type === "locationMessage" ? m.message[m.type].comment : m.type === "listResponseMessage" ? m.message[m.type].singleSelectReply.selectedRowId : m.type === "templateButtonReplyMessage" && m.message.templateButtonReplyMessage ? m.message[m.type].selectedId : m.type === "buttonsResponseMessage" ? m.message[m.type].selectedButtonId : m.type === "reactionMessage" ? m.message[m.type].text : m.type === "documentMessage" ? m.message[m.type]?.caption || "Document Message" : m.type === "audioMessage" ? "Audio Message" : m.type === "stickerMessage" ? "Sticker Message" : m.type === "contactMessage" ? "Contact Message" : m.type === "productMessage" ? "Product Message" : m.type === "pollCreationMessage" ? "Poll Message" : m.type === "protocolMessage" ? "Protocol Message" : m.type === "buttonsMessage" ? "Buttons Message" : m.type === "listMessage" ? "List Message" : "-"
+        m.type = Object.keys(m.message)[0] as MessageType
+        m.isNewsLetter = m.chat.endsWith('@newsletter')
+        m.body = m.type === "conversation" ? m.message.conversation : m.type === "extendedTextMessage" ? m.message[m.type].text : m.type === "imageMessage" ? m.message[m.type].caption : m.type === "videoMessage" ? m.message[m.type].caption : m.type === "locationMessage" ? m.message[m.type].comment : m.type === "listResponseMessage" ? m.message[m.type].singleSelectReply.selectedRowId : m.type === "templateButtonReplyMessage" && m.message.templateButtonReplyMessage ? m.message[m.type].selectedId : m.type === "buttonsResponseMessage" ? m.message[m.type].selectedButtonId : m.type === "reactionMessage" ? m.message[m.type].text : m.type === "documentMessage" ? m.message[m.type]?.caption || "Document Message" : m.type === "audioMessage" ? "Audio Message" : m.type === "stickerMessage" ? "Sticker Message" : m.type === "contactMessage" ? "Contact Message" : m.type === "productMessage" ? "Product Message" : m.type === "pollCreationMessage" ? "Poll Message" : m.type === "protocolMessage" ? "Protocol Message" : m.type === "buttonsMessage" ? "Buttons Message" : m.type === "listMessage" ? "List Message" : m.type === 'botInvokeMessage' ? 'bot Invoke Message' : 'undetected'
         m.args = m.body.trim().split(/ +/).slice(1)
         m.arg = m.body.substring(m.body.indexOf(" ") + 1)
+        m.messageTimestamp = message.messageTimestamp
+        m.isBroadcast = message.broadcast
+        if (m?.message?.interactiveResponseMessage) {
+          const paramsJson = m?.message.interactiveResponseMessage.nativeFlowResponseMessage?.paramsJson
+          if (paramsJson) {
+          const params = JSON.parse(paramsJson)
+          m.body = params.id
+          }
+        }
+        
 
-        if (m.type == 'protocolMessage' && m.msg.key) { 
-            protocolMessageKey = m.msg.key 
+        if (m.type == 'protocolMessage' && m.message[m.type].key) { 
+            protocolMessageKey = m.message[m.type].key 
             if (protocolMessageKey == 'status@broadcast') protocolMessageKey.remoteJid = m.chat 
             if (!protocolMessageKey.participant || protocolMessageKey.participant == 'status_me') protocolMessageKey.participant = m.sender 
             protocolMessageKey.fromMe = sock.decodeJid(protocolMessageKey.participant) === sock.decodeJid(sock.user.id) 
             if (!protocolMessageKey.fromMe && protocolMessageKey.remoteJid === sock.decodeJid(sock.user.id)) protocolMessageKey.remoteJid = m.sender 
         }
-        let quoted = m.quoted = m.msg.contextInfo ? m.msg.contextInfo.quotedMessage : null
-        m.mentionedJid = m.msg.contextInfo ? m.msg.contextInfo.mentionedJid : []
+        if (m.type === 'viewOnceMessage') {
+          m.message = m.message[m.type]?.message
+          m.type =  Object.keys(m.message)[0]
+        }
+        if (m.type === 'ephemeralMessage') {
+          m.message = m.message[m.type]?.message
+          const type = Object.keys(m.message)[0]
+          m.type = type
+          if (type === 'viewOnceMessage') {
+            m.message = m.message[m.type]?.message
+            m.type = Object.keys(m.message)[0]
+          }
+        }
+        if (m.type === "ephemeralMessage") {
+          m.message = m.message[m.type].message;
+          const tipe = Object.keys(m.message)[0];
+          m.type = tipe;
+          if (tipe === "viewOnceMessageV2") {
+              m.message = m.message[m.type].message;
+              m.type = Object.keys(m.message)[0];
+          }
+       }
+        if (m.type === "viewOnceMessageV2") {
+          m.message = m.message[m.type].message;
+          m.type = Object.keys(m.message)[0];
+        }
+
+        
+        m.download = async () => sock.downloadMediaMessage(m)
+        m.status = message?.status
+        let quoted = m.quoted = m.message[m.type]?.contextInfo?.quotedMessage
+        m.mentionedJid = m.message[m.type]?.contextInfo ? m.message[m.type]?.contextInfo?.mentionedJid : []
         if (quoted) {
             m.quoted.message = m.message[m.type].contextInfo.quotedMessage
-            m.quoted.type = getContentType(m.quoted.message)
+            m.quoted.type = Object.keys(m.message[m.type].contextInfo.quotedMessage)[0]
             m.quoted.delete = async () => {
               let vM = proto.WebMessageInfo.fromObject({
                 key: {
-                  remoteJid: m.msg.contextInfo.remoteJid || m.chat,
-                  fromMe: m.msg.contextInfo.participant.split(':')[0] === (sock.user && sock.user.id),
-                  id: m.msg.contextInfo.stanzaId
+                  remoteJid: m.message[m.type].contextInfo.remoteJid || m.chat,
+                  fromMe: m.message[m.type].contextInfo.participant.split(':')[0] === (sock.user && sock.user.id),
+                  id: m.message[m.type].contextInfo.stanzaId
                 },
                 message: quoted,
-                ...(m.isGroup ? { participant: m.msg.contextInfo.participant } : {})
+                ...(m.isGroup ? { participant: m.message[m.type].contextInfo.participant } : {})
               })
-              await sock.sendMessage(m.msg.contextInfo.remoteJid || m.chat, { delete: vM.key })
+              await sock.sendMessage(m.message[m.type].contextInfo.remoteJid || m.chat, { delete: vM.key })
             }
-            m.quoted.download = async () => {
-              return (await downloadMediaMessage(
-                { key: m.msg.key, message: m.quoted.message },
-                'buffer',
-                {}
-            )) as Buffer
-            }}
-            m.pushname = message.pushName || 'unknown'
+            m.quoted.download = async () => sock.downloadMediaMessage(m.quoted)
+          } else m.quoted = null
+            m.eventMessage = message.eventResponses || []
+            m.pushname = message.pushName || message.verifiedBizName || 'unknown'
             m.reply = async (text: string, jid?: string, quoted?: MessageSerialize, options?: Partial<AnyMessageContent>): Promise<proto.WebMessageInfo> => await sock.sendMessage(jid ? jid : m.chat, { text: text, ...options }, { quoted: quoted ? quoted : m })
 
-            if (m.msg.url) m.download = () => sock.downloadMediaMessage(m.msg)
-                m.text = m.msg.text || m.msg.caption || m.message.conversation || m.msg.contentText || m.msg.selectedDisplayText || m.msg.title || ''
+            if (m.message[m.type]?.url) m.download = () => sock.downloadMediaMessage(m.message[m.type])
+                m.text = m.message[m.type]?.text || m.message[m.type]?.caption || m.message?.conversation || m.message[m.type]?.contentText || m.message[m.type]?.selectedDisplayText || m.message[m.type]?.title || m.message[m.type]?.interactiveMessage || ''
     }
     global.db.data = global.db.data || {} as DatabaseType
     const jid = sock.user.id.split(':')[0] + '@s.whatsapp.net'
@@ -213,9 +256,9 @@ export const message = async (sock: client, message: WAMessage): Promise<proto.I
         const expToLevelUp = (level: number) => Math.floor(100 * Math.pow(1.5, level))
         const expNeeded = expToLevelUp(user.level)
         if (user.exp >= expNeeded) {
-          user.exp -= expNeeded
           user.level += 1
-          sock.sendMessage(m.chat, { text: `¡Felicidades! @${m.sender.split("@")[0]} Has alcanzado el nivel ${user.level}`, mentions: [m.sender] }, { quoted: m})
+          user.exp = 0
+          sock.sendMessage(m.chat, { text: `Nivel subido a ${user.level}` })
         }
 
       }
@@ -233,6 +276,7 @@ export const message = async (sock: client, message: WAMessage): Promise<proto.I
     if (!('antiFake' in chats)) chats.antiFake = false
     if (!('antiArabe' in chats)) chats.antiArabe = false
     if (!('detect' in chats)) chats.detect = true
+    if (!('welcomeMessage' in chats)) chats.welcomeMessage = ''
   } else {
     global.db.data.chats[m.chat] = {
       antilink: false,
@@ -245,6 +289,7 @@ export const message = async (sock: client, message: WAMessage): Promise<proto.I
       antiFake: false,
       antiArabe: false,
       detect: true,
+      welcomeMessage: '',
     }
   }
       
