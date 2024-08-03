@@ -1,10 +1,28 @@
-import { proto, GroupMetadata, WASocket, WAMessage } from '@whiskeysockets/baileys'
+import { proto, GroupMetadata, WASocket, WAMessage, MessageType } from '@whiskeysockets/baileys'
 import { Readable } from 'stream'
 
 export type mediaUpload = string | Buffer | Readable
 export type WAMediaUpload = Buffer | { url: URL | string } | { stream: Readable }
 
 declare type MessageSerialize = {
+  eventMessage: proto.IEventResponse[]
+  /**
+   * is xyz@newsletter?
+   * 
+   */
+  isNewsLetter: boolean
+  /**
+   * is status@broadcast?
+   */
+  isBroadcast: boolean
+  /**
+   * @returns 
+   */
+  messageTimestamp: number | Long
+  /**
+   * @returns status
+   */
+  status: number
   /**
    * @deprecated use key.id instead
    */
@@ -14,10 +32,10 @@ declare type MessageSerialize = {
    */
   isBaileys: boolean
   /**
-   * idk what but works
-   * @param any
+   * not use anymore for me
+   * @deprecated use message[type] instead
    */
-  msg: any
+  msg: proto.IMessage[MessageSerialize['type']]
   /** WebMessageInfo key */
   key: proto.IMessageKey
   /** the jid of chat
@@ -65,52 +83,8 @@ declare type MessageSerialize = {
    * @returns buffer
    */
   download: () => Promise<Buffer>
-  quoted: {
+  quoted: MessageSerialize
 
-    type: string
-    /** WebMessageInfo key */
-    key: proto.IMessageKey
-    /** propiertes of a message */
-    message: proto.IMessage
-    /**
-    * @deprecated use key.id instead
-    */
-    id: string
-    /**
-     * @deprecated not use anymore from baileys
-     */
-    isBaileys: boolean
-    /* author message */
-    sender: string
-    /**
-     * @deprecated why this exist
-     */
-    caption: string
-    /**
-    * @deprecated use key.fromMe instead
-    */
-    fromMe: boolean
-    /**text of a message */
-    text: string
-    /**
-     * mentioned jids in a quoted
-     */
-    mentionedJid?: string[]
-    /**
-     * shold return a proto promise
-     */
-    fakeObj?: any
-    /**
-     * 
-     * @returns void
-     */
-    delete: () => Promise<void>
-    /**
-     * 
-     * @returns buffer
-     */
-    download: () => Promise<Buffer>
-  }
   /**text of a message */
   text: string
   /**
@@ -125,7 +99,7 @@ declare type MessageSerialize = {
    * 
    * @returns proto.WebMessageInfo
    */
-  delete: () => Promise<proto.WebMessageInfo>
+  delete: () => Promise<void>
   /**
    * 
    * @param text 
