@@ -17,7 +17,6 @@ type events = {
   "message.upsert": (creds: proto.IWebMessageInfo) => void
   "contacts.update": (creds: Partial<Contact>) => void
   "CB:connect": (creds: Partial<ConnectionState>) => void
-  "subbot.connect": (creds: Partial<ConnectionState>) => void
   "creds.update": (creds: Partial<AuthenticationCreds>) => void
   "messages.delete": (creds: proto.IMessageKey) => void
   "messaging-history.set": (creds: { chats: Chat[], contacts: Contact[], messages: proto.IWebMessageInfo[], isLatest: boolean }) => void
@@ -51,7 +50,6 @@ export class client extends (EventEmitter as new () => TypedEventEmitter<events>
     })
     conn.ev.on('messages.upsert', async ({messages}) => {    
       for (const message of messages) {
-        console.log(message)
         if (message.messageStubParameters != undefined && message.messageStubParameters[0] === "Message absent from node") {
           await this.sendMessageAck(JSON.parse(message.messageStubParameters[1], BufferJSON.reviver))
         }
@@ -105,12 +103,14 @@ export class client extends (EventEmitter as new () => TypedEventEmitter<events>
       conn.ev?.removeAllListeners(ev as keyof BaileysEventMap)
       for (const key of Object.keys(conn)) {
         this[key as keyof client] = conn[key as keyof conn]
-        if(!["ev", "ws"].includes(key)) delete conn[key as keyof conn]}
+        if(!["ev"].includes(key)) delete conn[key as keyof conn]}
+
+      
 
   }
 
-
-  ws: ws
+  
+  public ws: ws
 
 /**
  * send a text
@@ -252,7 +252,7 @@ public sendVideo =  (jid: string, video: mediaUpload, caption?: string, gifPlayb
  * @param options 
  * @returns 
  */
-public sendAudio = (jid: string, audio: mediaUpload, ppt: boolean, mimetype: string, quoted: proto.IWebMessageInfo, options: Partial<AnyMessageContent>): Promise<WAProto.WebMessageInfo> => {
+public sendAudio = (jid: string, audio: mediaUpload, ppt: boolean, mimetype: string, quoted: proto.IWebMessageInfo, options?: Partial<AnyMessageContent>): Promise<WAProto.WebMessageInfo> => {
   let media: WAMediaUpload
   if (typeof audio === "string" && isURL(audio)) {
       media = { url: audio }

@@ -1,5 +1,6 @@
-import { parse } from "fast-xml-parser"
+import {parse} from 'fast-xml-parser'
 import bent from "bent"
+
 
 const parseroptions = {
     attributeNamePrefix: "",

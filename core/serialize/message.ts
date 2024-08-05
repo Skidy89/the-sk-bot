@@ -1,75 +1,17 @@
 import { client } from "../client"
-import { MessageSerialize } from "../../types"
-import { proto, WAMessage, downloadMediaMessage, AnyMessageContent, getContentType, MessageType } from "@whiskeysockets/baileys"
-
-type UserType = {
-  registered: boolean
-  name: string
-  age: number
-  regTime: number
-  afkTime: number
-  afkReason: string
-  limit: number
-  money: number
-  health: number
-  warn: number
-  exp: number
-  role: string
-  level: number
-  armor: number
-  sword: number
-  pickaxe: number
-  axe: number
-  gems: number
-  gold: number
-  copper: number
-  lastmiming: number
-  robs: number
-  lastclaim: number
-  diamonds: number
-  swordDurability: number
-  pickaxeDurability: number
-  axeDurability: number
-  armorDurability: number
-  lastMining: number
-  potion: number
-  rock: number
-  iron: number
-  trash: number
-  totalAttacks: number
-  totalDamageDealt: number
-}
-
-type ChatType = {
-  antilink: boolean
-  ban: boolean
-  modeadmin: boolean
-  welcome: boolean
-  audios: boolean
-  antiNsfw: boolean
-  antispam: boolean
-  antiFake: boolean
-  antiArabe: boolean
-  detect: boolean
-  welcomeMessage: string
-}
-
-type SettingType = {
-  status: number
-  botname: string
-  autobio: boolean
-  jadibot: boolean
-  antiCall: boolean
-  privado: boolean
+import { ChatType, low, MessageSerialize, SettingType, UserType } from "../../types"
+import { proto, WAMessage, AnyMessageContent, MessageType } from "@whiskeysockets/baileys"
+export const expToLevelUp = (level: number) => Math.floor(100 * Math.pow(1.5, level))
+declare var globalThis: {
+  db: low
 }
 
 
-export type DatabaseType = {
-  users: { [key: string]: UserType }
-  chats: { [key: string]: ChatType }
-  settings: { [key: string]: SettingType }
-  sticker: any
-}
+
+
+
+
+
 
 /**
  * parse the message for easy use
@@ -167,157 +109,170 @@ export const message = async (sock: client, message: WAMessage): Promise<proto.I
             if (m.message[m.type]?.url) m.download = () => sock.downloadMediaMessage(m.message[m.type])
                 m.text = m.message[m.type]?.text || m.message[m.type]?.caption || m.message?.conversation || m.message[m.type]?.contentText || m.message[m.type]?.selectedDisplayText || m.message[m.type]?.title || m.message[m.type]?.interactiveMessage || ''
     }
-    global.db.data = global.db.data || {} as DatabaseType
+    
     const jid = sock.user.id.split(':')[0] + '@s.whatsapp.net'
     try {
       const isNumber = (x: any): x is number => typeof x === 'number' && !isNaN(x)
+      const Iuser = (user: Partial<UserType>): UserType => ({
+        name:  user.name || m.pushname,
+        turnAbility: isNumber(user.turnAbility) ? user.turnAbility : 0,
+        health: isNumber(user.health) ? user.health : 100,
+        afkTime: isNumber(user.afkTime) ? user.afkTime : 0,
+        afkReason: user.afkReason || '',
+        luck: isNumber(user.luck) ? user.luck : 0,
+        gold: isNumber(user.gold) ? user.gold : 0,
+        exp: isNumber(user.exp) ? user.exp : 0,
+        iron: isNumber(user.iron) ? user.iron : 0,
+        ability: isNumber(user.ability) ? user.ability : 0,
+        especial: user.especial || 'ninguno',
+        level: isNumber(user.level) ? user.level : 0,
+        role: user.role || '',
+        meat: isNumber(user.meat) ? user.meat : 0,
+        pet: isNumber(user.pet) ? user.pet : 0,
+        petName: user.petName || '',
+        petRarity: isNumber(user.petRarity) ? user.petRarity : 0,
+        petExp: isNumber(user.petExp) ? user.petExp : 0,
+        petLevel: isNumber(user.petLevel) ? user.petLevel : 0,
+        petHealth: isNumber(user.petHealth) ? user.petHealth : 0,
+        attack: isNumber(user.attack) ? user.attack : 10,
+        defense: isNumber(user.defense) ? user.defense : 0,
+        speed: isNumber(user.speed) ? user.speed : 0,
+        potion: isNumber(user.potion) ? user.potion : 0,
+        money: isNumber(user.money) ? user.money : 0,
+        bow: isNumber(user.bow) ? user.bow : 0,
+        sword: isNumber(user.sword) ? user.sword : 0,
+        limit: isNumber(user.limit) ? user.limit : 0,
+        lastClaim: isNumber(user.lastClaim) ? user.lastClaim : 0,
+        lastDaily: isNumber(user.lastDaily) ? user.lastDaily : 0,
+        lastStreak: isNumber(user.lastStreak) ? user.lastStreak : 0,
+        lastWork: isNumber(user.lastWork) ? user.lastWork : 0,
+        lastRob: isNumber(user.lastRob) ? user.lastRob : 0,
+        armor: isNumber(user.armor) ? user.armor : 0,
+        armorDurability: isNumber(user.armorDurability) ? user.armorDurability : 0,
+        pickaxe: isNumber(user.pickaxe) ? user.pickaxe : 0,
+        pickaxeDurability: isNumber(user.pickaxeDurability) ? user.pickaxeDurability : 0,
+        swordDurability: isNumber(user.swordDurability) ? user.swordDurability : 0,
+        shield: isNumber(user.shield) ? user.shield : 0,
+        shieldDurability: isNumber(user.shieldDurability) ? user.shieldDurability : 0,
+        deaths: isNumber(user.deaths) ? user.deaths : 0,
+        lastAventure: isNumber(user.lastAventure) ? user.lastAventure : 0,
+      })
+    const user: UserType = globalThis.db.data.users[m.sender] = Iuser(globalThis.db.data.users[m.sender] || {})
+    if (user) {
+      if (user.health > 100 && user.especial === 'warrior' || user.especial === 'ninguno') user.health = 100
+      if (user.health > 350 && user.especial === 'gambler') user.health = 350
+      if (user.health <= 0) {
+        user.health = 1
+        const loseItems = ['gold', 'iron', 'meat', 'potion', 'money']
+        let lostItems = []
+    
+        loseItems.forEach((item) => {
+          if (user[item] > 0) {
+            lostItems.push(`${user[item]} ${item}`)
+            user[item] -= Math.floor(user[item] * 0.5)
+          }
+        })
+    
+        if (user.especial === 'gambler') {
+          if (Math.random() < Math.min(user.luck / 100, 1)) {
+            user.health += 50
+            return sock.sendText(m.chat, 'No tienes tiempo para morir. Tu suerte te dio 50 de salud.')
+          }
+          user.deaths += 1
+          return sock.sendText(m.chat, `Parece que tu suerte hoy no te salva. Te has muerto.  Te has muerto. ${lostItems.length > 0 ? `objecto(s) perdido: ${lostItems.join(', ')}` : ''}`)
+        } else if (user.especial === 'warrior') {
+          user.deaths += 1
+          return sock.sendText(m.chat, `No importa lo fuerte que seas. Te has muerto. ${lostItems.length > 0 ? `objecto(s) perdido: ${lostItems.join(', ')}` : ''}`)
+        } else {
+          user.deaths += 1
+          return sock.sendText(m.chat, `Te has muerto. ${lostItems.length > 0 ? `objecto(s) perdido: ${lostItems.join(', ')}` : ''}`)
+        }
+      }
       
-      let user = global.db.data.users[m.sender]
-      if (typeof user !== 'object') global.db.data.users[m.sender] = {} as UserType
-      if (user) {
-        if (!('registered' in user)) user.registered = false
-        if (!user.registered) {
-          if (!('name' in user)) user.name = m.pushname
-          if (!isNumber(user.age)) user.age = -1
-          if (!isNumber(user.regTime)) user.regTime = -1
-        }
-        if (!isNumber(user.afkTime)) user.afkTime = -1
-        if (!('afkReason' in user)) user.afkReason = ''
-        if (!isNumber(user.limit)) user.limit = 20
-        if (!isNumber(user.money)) user.money = 50
-        if (!isNumber(user.health)) user.health = 100
-        if (!isNumber(user.warn)) user.warn = 0
-        if (!isNumber(user.exp)) user.exp = 0
-        if (!isNumber(user.role)) user.role = 'Novato I'
-        if (!isNumber(user.level)) user.level = 1
-        if (!isNumber(user.armor)) user.armor = 0
-        if (!isNumber(user.sword)) user.sword = 0
-        if (!isNumber(user.pickaxe)) user.pickaxe = 0
-        if (!isNumber(user.axe)) user.axe = 0
-        if (!isNumber(user.gems)) user.gems = 0
-        if (!isNumber(user.gold)) user.gold = 0
-        if (!isNumber(user.copper)) user.copper = 0
-        if (!isNumber(user.lastmiming)) user.lastmiming = 0
-        if (!isNumber(user.robs)) user.robs = 0
-        if (!isNumber(user.lastclaim)) user.lastclaim = 0
-        if (!isNumber(user.diamonds)) user.diamonds = 0
-        if (!isNumber(user.swordDurability)) user.swordDurability = 100
-        if (!isNumber(user.pickaxeDurability)) user.pickaxeDurability = 100
-        if (!isNumber(user.axeDurability)) user.axeDurability = 100
-        if (!isNumber(user.armorDurability)) user.armorDurability = 100
-        if (!isNumber(user.lastMining)) user.lastMining = 0
-        if (!isNumber(user.potion)) user.potion = 0
-        if (!isNumber(user.rock)) user.rock = 0
-        if (!isNumber(user.iron)) user.iron = 0
-        if (!isNumber(user.trash)) user.trash = 0
-        if (!isNumber(user.totalAttacks)) user.totalAttacks = 0
-        if (!isNumber(user.totalDamageDealt)) user.totalDamageDealt = 0
-      } else {
-        global.db.data.users[m.sender] = {
-          registered: false,
-          name: m.pushname,
-          age: -1,
-          regTime: -1,
-          afkTime: -1,
-          afkReason: '',
-          limit: 20,
-          money: 50,
-          health: 100,
-          warn: 0,
-          exp: 0,
-          role: 'Novato I',
-          level: 1,
-          armor: 0,
-          sword: 0,
-          pickaxe: 0,
-          axe: 0,
-          gems: 0,
-          gold: 0,
-          copper: 0,
-          lastmiming: 0,
-          robs: 0,
-          lastclaim: 0,
-          diamonds: 0,
-          swordDurability: 100,
-          pickaxeDurability: 100,
-          axeDurability: 100,
-          armorDurability: 100,
-          lastMining: 0,
-          potion: 0,
-          rock: 0,
-          iron: 0,
-          trash: 0,
-          totalAttacks: 0,
-          totalDamageDealt: 0,
-        }
+      
+      const expNeeded = expToLevelUp(user.level)
+      const passiveWarrior = (user: UserType) => {
+        const regenInterval = 5 * 60 * 60 * 1000
+        const regenAmount = 10
+    
+        const regen = setInterval(() => {
+          if (user.health >= 100) {
+            clearInterval(regen)
+          } else {
+            user.health = Math.min(user.health + regenAmount, 100)
+          }
+        }, regenInterval)
+    
+        return regen
       }
-      if (user) {
-        if (user.health < 0) user.health = 0
-        const expToLevelUp = (level: number) => Math.floor(100 * Math.pow(1.5, level))
-        const expNeeded = expToLevelUp(user.level)
-        if (user.exp >= expNeeded) {
-          user.level += 1
-          user.exp = 0
-          sock.sendMessage(m.chat, { text: `Nivel subido a ${user.level}` })
-        }
-
+      
+      if (user.exp >= expNeeded) {
+        user.level += 1
+        user.exp = 0
+        sock.sendMessage(m.chat, { text: patchpassive(user) })
       }
-      let setting = global.db.data.settings[jid]
-      let chats = global.db.data.chats[m.chat]
-      if (typeof chats !== 'object') global.db.data.chats[m.chat] = {} as ChatType
-  if (chats) {
-    if (!('antilink' in chats)) chats.antilink = false
-    if (!('ban' in chats)) chats.ban = false
-    if (!('modeadmin' in chats)) chats.modeadmin = false
-    if (!('welcome' in chats)) chats.welcome = true
-    if (!('audios' in chats)) chats.audios = true
-    if (!('antiNsfw' in chats)) chats.antiNsfw = true
-    if (!('antispam' in chats)) chats.antispam = true
-    if (!('antiFake' in chats)) chats.antiFake = false
-    if (!('antiArabe' in chats)) chats.antiArabe = false
-    if (!('detect' in chats)) chats.detect = true
-    if (!('welcomeMessage' in chats)) chats.welcomeMessage = ''
-  } else {
-    global.db.data.chats[m.chat] = {
-      antilink: false,
-      ban: false,
-      modeadmin: false,
-      welcome: true,
-      audios: true,
-      antiNsfw: true,
-      antispam: true,
-      antiFake: false,
-      antiArabe: false,
-      detect: true,
-      welcomeMessage: '',
+      if (user.especial === 'gambler') {
+        user.defense = 0
+        if (user.luck > 100) user.luck = 100
+      }
+      let Ipassive
+      if (user.especial === 'warrior') {
+        if (user.health >= 100) return
+        Ipassive = passiveWarrior(user)
+      }
     }
-  }
-      
-      if (typeof setting !== 'object') {
-        setting = {
-          status: 0,
-          autobio: true,
-          jadibot: true,
-          antiCall: true,
-          privado: false,
-          botname: '',
-        }
-        global.db.data.settings[jid] = setting
-      } else {
-        if (!isNumber(setting.status)) setting.status = 0
-        if (!('autobio' in setting)) setting.autobio = true
-        if (!('jadibot' in setting)) setting.jadibot = true
-        if (!('antiCall' in setting)) setting.antiCall = true
-        if (!('privado' in setting)) setting.privado = false
-        if (!('botname' in setting)) setting.botname = ''}
 
-      
-    
+    const Ichat = (chat: Partial<ChatType>): ChatType => ({
+      antilink: chat.antilink || false,
+      ban: chat.ban || false,
+      modeadmin: chat.modeadmin || false,
+      welcome: chat.welcome || false,
+      audios: chat.audios || false,
+      antiNsfw: chat.antiNsfw || false,
+      antiArabe: chat.antiArabe || false,
+      antiSpam: chat.antiSpam || false,
+      antiFake: chat.antiFake || false,
+      detect: chat.detect || false,
+      welcomeMessage: chat.welcomeMessage || ''
+    })
+    const chat: ChatType = globalThis.db.data.chats[m.chat] = Ichat(globalThis.db.data.chats[m.chat] || {})
 
-    
-      global.db.data.sticker = global.db.data.sticker || {}
+    const Isettings = (settings: Partial<SettingType>): SettingType => ({
+      botName: settings.botName || '',
+      menuImage: settings.menuImage || [],
+      urlLinks: settings.urlLinks || '',
+      antiCalls: settings.antiCalls || false,
+      autoread: settings.autoread || false,
+    })
+    const settings: SettingType = globalThis.db.data.settings[jid] = Isettings(globalThis.db.data.settings[jid] || {})
+      
     } catch (error) {
       console.error(error)
     }
     return m
+}
+
+function patchpassive(user: UserType) {
+  let message = ''
+  message += `（鋭真圧） ¡Ｆｅｌｉｃｉｄａｄｅｓ！　\nꜱᴜʙɪꜱᴛᴇ ᴀʟ ɴɪᴠᴇʟ ${user.level}⚜\n`
+  if (user.especial === 'gambler') {
+    const luck = user.level <= 100 ? user.level * 0.1 : 10
+    user.luck += luck
+    user.health = 350
+
+    user.attack += 10
+
+    user.money += user.luck ? user.luck : 100
+    message += `ᴄᴏᴍᴏ ɢᴀᴍʙʟᴇʀ. ᴛᴜ ꜱᴜᴇʀᴛᴇ ᴀᴜᴍᴇɴᴛᴀ un ${luck.toFixed(2)}!! 🍀/n${user.attack} ᴀᴛᴀQᴜᴇ ⚔`
+  }
+  else if (user.especial === 'warrior') {
+    user.attack += user.level ? 5 *user.level : 5
+    user.defense += user.level ? 5 *user.level : 5
+    message += `ᴛᴜ ʜᴀʙɪʟɪᴅᴀᴅ ᴄᴏᴍᴏ ɢᴜᴇʀʀᴇʀᴏ ᴀᴜᴍᴇɴᴛᴀ\n${user.defense} ᴅᴇꜰᴇɴꜱᴀ 🛡\n ${user.attack} ᴀᴛᴀQᴜᴇ ⚔`
+  }
+  else if (user.especial === 'ninguna') {
+    message += `ɴᴏ ᴛɪᴇɴᴇꜱ ʜᴀʙɪʟɪᴅᴀᴅ\n ɴᴏ ʀᴇᴄɪʙᴇꜱ ɴᴀᴅᴀ`
+  }
+  return message
+
 }

@@ -1,13 +1,15 @@
-import { downloadContentFromMessage, makeInMemoryStore, MessageType, proto, WAMessage, WAMessageContent } from "@whiskeysockets/baileys"
+import {  makeInMemoryStore,  proto } from "@whiskeysockets/baileys"
 import { randomBytes } from "crypto"
 import fs from "fs"
 import pino, { Logger } from "pino"
-import { downloads, MessageSerialize } from "../../types"
+import { combatRoom, MessageSerialize, Rewards, UserType } from "../../types"
 import axios from "axios"
 import { createCanvas, loadImage } from '@napi-rs/canvas';
 import { client } from "../../core"
 import BodyForm from "form-data"
-import { basename } from "path"
+import { fetchInfo, IdataDownload, IdataVideoInfo } from "../../types/types"
+import { load } from "cheerio"
+
 /**
  * Generates a hash value for a given string.
  * @param content - The string for which to generate a hash.
@@ -24,16 +26,50 @@ export const generateHash = (content: string): string => {
 }
 
 
-export const ytDownloader = async (url: string) => {
-    let URL = 'https://ssyoutube.com/msec'
-    const config = {
-        headers: {
-            'Accept': '*/*',
+
+  
+  async function patchVideoInfo(IvideoInfo: fetchInfo): Promise<IdataVideoInfo> {
+      const { url } = IvideoInfo
+      const Iurl = 'https://vidsavefrom.com/mates/en/analyze/ajax?retry=undefined&platform=youtube'
+      const response = await axios.post(Iurl, new URLSearchParams({
+          url,
+          platform: 'youtube'
+        }).toString(), {
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+        })
+      const $ = load(response.data.result)
+      const videoTitle = $('#video_title').text().trim()
+      const thumbnail = $('img.img-thumbnail').attr('src') || ''
+      const duration = $('p.m-b-0.m-t').text().replace('Duration: ', '')
+      const id = $('#video_status').attr('data-id') || ''
+      return { videoTitle, thumbnail, duration, id }
+  
+      
+  }
+  
+    
+  
+  export async function youtubeDownloader(params: fetchInfo): Promise<IdataDownload> {
+      const IvideoData = await patchVideoInfo(params)
+      const data = new URLSearchParams({
+          id: IvideoData.id,
+          platform: 'youtube',
+          url: params.url,
+          title: IvideoData.videoTitle,
+          ext: 'mp4',
+          note: '720p60',
+          format: '136'
+        })
+        const response = await axios.post('https://vidsavefrom.com/mates/en/convert?id=' + IvideoData.id, data.toString(), {
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            'Accept': 'application/json, text/javascript, */*; q=0.01',
             'Accept-Encoding': 'gzip, deflate, br, zstd',
-            'Accept-Language': 'es-419,es;q=0.5',
-            'Cookie': 'uid=848087251692a70b; pushNotification=100; errorClickAds=36; clickAds=19; widgetPartnerApp=57; errorTime=73; laravel_session=eyJpdiI6IkJUL0h2SkpkeDI2SkcrenN6M1pKK2c9PSIsInZhbHVlIjoibnVJMTU2N3lEVjlHV3dGMHhxV3hsR2NwYlQ3RVEwYXI2TlBWajhCNFF1SVhSVUsvMUFNQXBKVzhCbUlEbU5TdmxGRzBzMUJYeHFPMjQ1eXNyRWxLcmV1R1pzOWlVU25lZlpBbGNrU0RKU0pKM0p5OGZHR0xZZGpWMldjV3lOQWQiLCJtYWMiOiJlNjQ3MTE0NDEzNmM0YjE4MTg3Njc3Njg4NGVkOGMzNzZlN2Q3ZTA4MDg1NTg4NTBkYjNkMzZmNWRkMmMxODZlIiwidGFnIjoiIn0%3D',
-            'Priority': 'u=1, i',
-            'Referer': 'https://ssyoutube.com/es75tx/youtube-video-downloader',
+            'Accept-Language': 'es-419,es;q=0.8',
+            'Origin': 'https://vidsavefrom.com',
+            'Referer': 'https://vidsavefrom.com/es/',
             'Sec-CH-UA': '"Not)A;Brand";v="99", "Brave";v="127", "Chromium";v="127"',
             'Sec-CH-UA-Mobile': '?0',
             'Sec-CH-UA-Platform': '"Windows"',
@@ -41,36 +77,49 @@ export const ytDownloader = async (url: string) => {
             'Sec-Fetch-Mode': 'cors',
             'Sec-Fetch-Site': 'same-origin',
             'Sec-GPC': '1',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36'
-        }
-    }
-    const response = await axios.get(URL, config)
-    console.log(response.data)
-    let Iurl = 'https://api.ssyoutube.com/api/convert'
-    const Ipayload = {
-        ts: Date.now(),
-        url: url,
-        _s: generateHash(Date.now().toString() + url + Date.now().toString()),
-        _ts: Date.now(),
-        _tsc: 0
-    }
-    const Iconfig = {
-        headers: {
-            'Accept': 'application/json, text/plain, */*',
-            'Content-Type': 'application/json',
-            'Origin': 'https://ssyoutube.com',
-            'Referer': 'https://ssyoutube.com/',
-            'Sec-Fetch-Mode': 'cors',
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
+            'X-Note': '720p60',
             'X-Requested-With': 'XMLHttpRequest'
-        }
-    }
-    const Respnses = await axios.post(Iurl, Ipayload, Iconfig)
-    console.log(Respnses)
-    return Respnses.data
-}
+          }
+        })
+        const Idata = new URLSearchParams({
+            id: IvideoData.id,
+            platform: 'youtube',
+            url: params.url,
+            title: IvideoData.videoTitle,
+            ext: 'mp3',
+            note: '128kbps',
+            format: ''
+          })
+          const responseMp3 = await axios.post('https://vidsavefrom.com/mates/en/convert?id=OtOYL4Ck9fI', Idata.toString(), {
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+              'Accept': 'application/json, text/javascript, */*; q=0.01',
+              'Accept-Encoding': 'gzip, deflate, br, zstd',
+              'Accept-Language': 'es-419,es;q=0.8',
+              'Origin': 'https://vidsavefrom.com',
+              'Referer': 'https://vidsavefrom.com/es/',
+              'Sec-CH-UA': '"Not)A;Brand";v="99", "Brave";v="127", "Chromium";v="127"',
+              'Sec-CH-UA-Mobile': '?0',
+              'Sec-CH-UA-Platform': '"Windows"',
+              'Sec-Fetch-Dest': 'empty',
+              'Sec-Fetch-Mode': 'cors',
+              'Sec-Fetch-Site': 'same-origin',
+              'Sec-GPC': '1',
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
+              'X-Note': '720p60',
+              'X-Requested-With': 'XMLHttpRequest'
+            }
+          })
+        const downloadMp3 = (responseMp3.data.downloadUrlX)
+        
+        const download = (response.data.downloadUrlX)
+        console.log(response.data)
+        return {videoTitle: IvideoData.videoTitle, thumbnail: IvideoData.thumbnail, duration: IvideoData.duration, download: download, downloadMp3: downloadMp3, id: IvideoData.id}
+  }
 
 
+export const createRoom: { [id: string]: combatRoom } = {}
 
 
 export const patchImage = async (conn: client, m: proto.IWebMessageInfo, type: "welcome" | "goodbye") => {
@@ -335,7 +384,47 @@ export function getMediaType(message: MessageSerialize) {
       return "sticker"
     }
   }
-const logger: Logger = pino({ level: 'silent', stream: 'store' })
+const logger: Logger = pino({ level: 'debug', stream: 'store' })
 
+export const host = [{
+    hostname: 'media.fslw1-1.fna.whatsapp.net',
+    maxContentLengthBytes: NaN
+},
+{
+    hostname: 'media.fcgh28-1.fna.whatsapp.net',
+    maxContentLengthBytes: NaN
+},
+{
+    hostname: 'media.fcgh20-1.fna.whatsapp.net',
+    maxContentLengthBytes: NaN
+},
+{
+    hostname: 'mmg.whatsapp.net',
+    maxContentLengthBytes: NaN
+},]
+
+export const patchDamage = (damage: number, defense: number): number => {
+    const reduction = defense / (defense + 100)
+    return damage * (1 - reduction)
+}
+
+
+export function msToTime(duration: number): string {
+    const milliseconds = Math.floor((duration % 1000) / 100)
+    const seconds = Math.floor((duration / 1000) % 60)
+    const minutes = Math.floor((duration / (1000 * 60)) % 60)
+    const hours = Math.floor((duration / (1000 * 60 * 60)) % 24)
+  
+    const hoursStr = hours > 0 ? `${hours < 10 ? "0" + hours : hours} Horas ` : ""
+    const minutesStr = minutes > 0 ? `${minutes < 10 ? "0" + minutes : minutes} Minutos ` : ""
+    const secondsStr = `${seconds < 10 ? "0" + seconds : seconds} Seg`
+  
+    return `${hoursStr}${minutesStr}${secondsStr}`.trim()
+  }
+  
+  
+  
+
+    
 export const store = makeInMemoryStore({ logger })
 

@@ -1,17 +1,20 @@
-import { worker } from "./core/worker"
+import { Icommand } from "./core/worker"
 import { client } from "./core"
-import { getGroupAdmins, getRandom, patchImage, pickRandom } from "./lib/functions/functions"
-import { MessageSerialize, commands } from "./types"
+import { createRoom, getGroupAdmins, getRandom, patchImage, pickRandom } from "./lib/functions/functions"
+import { ChatType, ICharacterStats, MessageSerialize, UserType, combatRoom, commands, event, player } from "./types"
 import { config } from "./config"
 import chalk from "chalk"
-import { proto } from "@whiskeysockets/baileys"
-import { replace } from "lodash"
+import { BufferJSON, proto } from "@whiskeysockets/baileys"
+import { setImmediate as timerImmediate, setTimeout as timerTimeout } from "timers"
+import { sleep } from "openai/core"
 
 
+ 
 
-const msgs = (message) => { 
+
+const msgs = (message: string) => { 
   if (message.length >= 10) { 
-  return `${message.substr(0, 500)}` 
+  return `${message.substring(0, 500)}` 
   } else { 
   return `${message}`}}
 
@@ -30,8 +33,8 @@ export const welcomes = async (sock: client, m: proto.IWebMessageInfo) => {
   if (!m.messageStubType || !m.key.remoteJid) return !0
   console.log(m.messageStubParameters)
   console.log(m?.messageStubType)
-  const chats = global.db.data.chats[m.key.remoteJid]
-  if (chats.ban) return
+  const chats = globalThis.db?.data?.chats[m.key.remoteJid] || {} as ChatType
+  if (chats?.ban) return
   const sender = m.key.fromMe ? (sock.user.id.split(":")[0]+'@s.whatsapp.net' || sock.user.id) : (m.key.participant || m.key.remoteJid)
   const groupMetadata = m.key.remoteJid.endsWith('@g.us') && (await sock.groupMetadata(m.key.remoteJid))
   const groupName = (await sock.groupMetadata(m.key.remoteJid)).subject ||  groupMetadata.subject
@@ -48,10 +51,12 @@ export const welcomes = async (sock: client, m: proto.IWebMessageInfo) => {
     try {
       sock.uploadPreKeys(2)
       message = message + 1
+      await sock.sendMessageAck(JSON.parse(paramaters[1], BufferJSON.reviver))
       console.log(chalk.greenBright.bold("[Client] ") + 'succeful decription\n')
     } catch {
       console.log(chalk.yellowBright.bold("[Client] ") + 'invalid prekey id')
     }
+
     
     break
     case chats?.detect && proto.WebMessageInfo.StubType.GROUP_PARTICIPANT_PROMOTE:
@@ -155,14 +160,17 @@ export const welcomes = async (sock: client, m: proto.IWebMessageInfo) => {
  * 
  * @param sock 
  * @param m 
- * @param Worker 
  * @returns 
  */
-export async function handle(sock: client, m: MessageSerialize, Worker: worker) {
+
+;
+
+
+export async function handle(sock: client, m: MessageSerialize) {
     if (!m || !m.body) return
     var budy = (typeof m.text == 'string' ? m.text : '')
     const prefix = /^[°•π÷×¶∆£¢€¥®™+✓/_=|~!?#$%^&.©^]/gi.test(m.body) ? m.body.match(/^[°•π÷×¶∆£¢€¥®™+✓/_=|~!?@#$%^&.©^]/gi)[0] : '!'
-    const commandHandler = Worker?.commands
+    const commandHandler = Icommand
     const isCmd = m?.body?.startsWith(prefix) ?  m?.body?.slice(1).trim().split(/ +/).shift().toLocaleLowerCase() : false
     const commandName =  isCmd && m.body?.replace(prefix, "").split(/ +/).shift().toLowerCase()
     const command = commandHandler?.get(commandName) ?? Array.from(commandHandler.values()).find((v) => v?.aliases?.find((x) => x?.toLowerCase() == commandName)) 
@@ -172,11 +180,12 @@ export async function handle(sock: client, m: MessageSerialize, Worker: worker) 
     const groupAdmins = m.isGroup && (await getGroupAdmins(participants))
     const isAdmin = m.isGroup ? groupAdmins.includes(m.sender) : false
     const isBotAdmin = m.isGroup ? groupAdmins.includes(sock.user.id) : false
-    const chats = global.db?.data?.chats[m.chat]
-    const users = global.db?.data?.users[m.sender]
+    const who = m.mentionedJid && m.mentionedJid[0] ? m.mentionedJid[0] : m.key.fromMe ? sock.user.id.split("@")[0]+'@s.whatsapp.net' : m.sender
+    const chats = globalThis.db?.data?.chats[m.chat] || {} as ChatType
+    const users = globalThis.db?.data?.users[m.sender] || {} as UserType
     const image = pickRandom(['https://i.pinimg.com/564x/da/18/77/da187754a16af4b8bc1979014bfde056.jpg', 'https://i.pinimg.com/736x/64/a2/00/64a20057d79f916dd673f13dbf2bc537.jpg', 'https://i.pinimg.com/564x/53/da/32/53da32becd006fc51e328d84322f7f5a.jpg', 'https://i.pinimg.com/564x/80/0c/5b/800c5b1652e5b8859ef7f9cd8c03d409.jpg', 'https://i.pinimg.com/564x/70/dc/f5/70dcf5baf62fc9df57f97b877b4162af.jpg'])
     const fcontact = {'key': {'participants': '0@s.whatsapp.net', 'remoteJid': 'status@broadcast', 'fromMe': false, 'id': getRandom(23)}, 'message': {'contactMessage': {'vcard': `BEGIN:VCARD\nVERSION:3.0\nN:Sy;Bot;;;\nFN:y\nitem1.TEL;waid=${m.key.fromMe ? (sock.user.id.split(":")[0]+'@s.whatsapp.net' || sock.user.id) : (m.key.participant || m.key.remoteJid).split('@')[0]}:${m.key.fromMe ? (sock.user.id.split(":")[0]+'@s.whatsapp.net' || sock.user.id) : (m.key.participant || m.key.remoteJid).split("@")[0]}\nitem1.X-ABLabel:Ponsel\nEND:VCARD`}}, 'participant': '0@s.whatsapp.net'}
-    if (chats.ban && !isOwner) return
+    if (chats?.ban && !isOwner) return
     if (m) {
     console.log(
       chalk.bold.white(`\n▣────────────···\n`),
@@ -187,9 +196,9 @@ export async function handle(sock: client, m: MessageSerialize, Worker: worker) 
     )
     users.exp += 1
   }
-    
     var args: string[] = m.body.trim().split(/\s+/).slice(1)
     
+   
     if (isCmd) {
     if (!command) return
     if (command) {
@@ -206,7 +215,7 @@ export async function handle(sock: client, m: MessageSerialize, Worker: worker) 
         return  await sock.sendText(m.chat, str, fcontact)
       }
       if((/(--functional|-f|-repair)/.test(args[0])) && isOwner) {
-        if (!command?.errored) sock.sendText(m.chat, `este comando no tiene errores`)
+        if (!command?.errored) return sock.sendText(m.chat, `este comando no tiene errores`)
         else command.errored = false
         return sock.sendText(m.chat, `el comando ${command.name} ha sido quitado de la lista de errores!`, fcontact)
         
@@ -218,7 +227,7 @@ export async function handle(sock: client, m: MessageSerialize, Worker: worker) 
         
     switch(true) {
       
-      case command && global.db.data.users[m.sender].banned:
+      case command && globalThis.db.data.users[m.sender].banned:
       return
       case command.groupOnly && !m.isGroup:
             await sock.sendMessage(m.chat, { text: `(虞岡科疫仮ぐ永ト) ᴇꜱᴛᴇ ᴄᴏᴍᴀɴᴅᴏ ꜱᴏʟᴏ ꜱᴇ ᴘᴜᴇᴅᴇ ᴜꜱᴀʀ ᴇɴ ɢʀᴜᴘᴏꜱ`, contextInfo: {
@@ -379,7 +388,7 @@ export async function handle(sock: client, m: MessageSerialize, Worker: worker) 
 
         default:
             try {
-              typeof command.handle === "function" && await command.handle(sock, m, Worker, { prefix, args, isAdmin, isBotAdmin, participants })
+              typeof command.handle === "function" && await command.handle(sock, m, { prefix, args, isAdmin, isBotAdmin, participants })
             } catch (error) {
                 if (command.errored) {
                   await sock.sendMessage(m.chat, { text: 'este comando ya fue desabilitado.\nse esta depurando y enviando logs a tu consola'}, {quoted: m})
@@ -400,3 +409,5 @@ export async function handle(sock: client, m: MessageSerialize, Worker: worker) 
       }
     }
 }
+
+

@@ -2,8 +2,9 @@
     "compilerOptions": {
       "strict": false,
       "allowJs": true,
-      "checkJs": false,
+      "checkJs": true,
       "esModuleInterop": true,
+      "noImplicitAny": false,
       "experimentalDecorators": true,
       "forceConsistentCasingInFileNames": true,
       "lib": ["ES2020", "ESNext.Array", "DOM"],
@@ -16,5 +17,6 @@
       "skipLibCheck": true,
       "target": "ESNext"
     },
+    "include": ["global.d.ts", "types/**/*d.ts", "**/*.ts"],
     "exclude": ["node_modules"]
   }

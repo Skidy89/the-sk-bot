@@ -6,6 +6,7 @@ export = {
     name: 'kiss',
     description: 'besa a alguien',
     groupOnly: true, 
+    category: 'diversión',
     async handle(conn: client, m: MessageSerialize) {
         try {
         var args = m.body.trim().split(/\s+/).slice(1)

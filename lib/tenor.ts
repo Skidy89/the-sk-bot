@@ -1,5 +1,4 @@
 import axios from 'axios'
-
 export type SearchTenorParams = {
     query: string
     country?: string
@@ -50,7 +49,7 @@ export async function getTenorResults({query, limit, locale, media_filter, count
   
     return await tenor
       .get(
-        `/search?q=${query}&key=${process.env.TENOR_API_KEY}&client_key={process.env.TENOR_API_CLIENT_SECRET}&limit=${limit}&locale=${locale}&country=${country}&media_filter=${media_filter}&random=${random}`,
+        `/search?q=${query}&key=AIzaSyDSXGgndjMEkHbsjYuE--pIinguOLhfn54&client_key=skid&limit=${limit}&locale=${locale}&country=${country}&media_filter=${media_filter}&random=${random}`,
       )
       .then((response) => response.data.results as TenorResults)
       .catch(() => undefined)
