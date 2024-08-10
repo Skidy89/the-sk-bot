@@ -7,11 +7,11 @@ export = <commands>{
     description: 'muestra tu perfil',
     category: 'info',
     handle: async (conn: client, m: MessageSerialize) => {
-        let pp = await conn.profilePictureUrl(m.sender, 'image').catch(error => {return 'https://i.ibb.co/Rbb2yXn/sinfoto.jpg'})
+        let pp = await conn.getProfilePicFromServer(m.sender)
         const user = globalThis.db.data.users[m.sender] as UserType
         
         const text = `
-perfil de @${m.sender.split('@')[0]}
+perfil de @${m.sender.split('@')[0]} 
 salud: ${user.health} ❤
 dinero: $${user.money} 🤑
 muertes: ${user.deaths} 💀

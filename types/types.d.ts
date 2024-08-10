@@ -1,7 +1,8 @@
 import { Low } from "@commonify/lowdb"
 import { chain } from "lodash"
-import { proto, GroupMetadata, WASocket, WAMessage, MessageType } from '@whiskeysockets/baileys'
+import { proto, GroupMetadata, WASocket, WAMessage, MessageType, AnyMessageContent } from '@whiskeySockets/baileys'
 import { Readable } from 'stream'
+import { client } from "../core/client"
 
 export type mediaUpload = string | Buffer | Readable
 export type WAMediaUpload = Buffer | { url: URL | string } | { stream: Readable }
@@ -27,7 +28,7 @@ declare type MessageSerialize = {
   /**
    * is status@broadcast?
    */
-  isBroadcast: boolean
+  isBroadcast: boolean | null | undefined
   /**
    * @returns 
    */
@@ -121,7 +122,7 @@ declare type MessageSerialize = {
    * @param options 
    * @returns proto.WebMessageInfo
    */
-  reply: (text: string, jid?: string, quoted?: MessageSerialize, options?: Partial<AnyMessageContent>) => Promise<proto.WebMessageInfo>
+  reply: (text: string, jid?: string, quoted?: proto.IWebMessageInfo, options?: Partial<AnyMessageContent>) => Promise<proto.WebMessageInfo>
 }
 
 
@@ -141,9 +142,8 @@ export declare type commands = Partial<{
     privateOnly: boolean
     isBotAdmin: boolean
     errored: boolean
-    cooldown: number
-    on: Function
-    handle?: Function
+    subbots: boolean
+    handle: Function
 }>
 
 declare module "node-webpmux" {
@@ -192,6 +192,9 @@ type UserType = {
     pickaxe: number
     pickaxeDurability: number
     swordDurability: number
+    swordName: string
+    pickaxeName: string
+    armorName: string
     sword: number
     armor: number
     armorDurability: number
@@ -219,6 +222,8 @@ type UserType = {
     botName: string
     menuImage: string[]
     urlLinks: string
+    legacyMenu: boolean
+    customMenu: string
     antiCalls: boolean
     autoread: boolean
   }
@@ -277,8 +282,20 @@ type IdataVideoInfo = {
 type IdataDownload = Partial<{
   download: string;
   downloadMp3: string;
-  videoTitle: string;
-  thumbnail: string;
-  duration: string;
+  fileSize: number;
+  fileSizeMp3: number;
   id: string;
 }>
+
+type bot = {
+  auth: string
+  socket: client
+  isMain: boolean
+  groupsMetadata?: Record<string, GroupMetadata>
+  interval?: NodeJS.Timeout
+}
+
+type cached = {
+  key: proto.IMessageKey
+  message: proto.IWebMessageInfo.Message | proto.IMessage | undefined
+}

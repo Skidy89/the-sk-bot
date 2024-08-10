@@ -1,5 +1,5 @@
 
-import { generateWAMessageFromContent, prepareWAMessageMedia, proto } from "@whiskeysockets/baileys"
+import { generateWAMessageFromContent, prepareWAMessageMedia, proto } from '@whiskeySockets/baileys'
 import { client } from "../core"
 import { getRandom, pickRandom } from "../lib/functions/functions"
 import { MessageSerialize } from "../types"

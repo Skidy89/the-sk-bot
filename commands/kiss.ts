@@ -10,8 +10,7 @@ export = {
     groupOnly: true, 
     async handle(conn: client, m: MessageSerialize) {
         try {
-        var args = m.body.trim().split(/\s+/).slice(1)
-        let text = args.join(" ")
+        let text = m.args.join(" ")
         let who =  m.mentionedJid[0] ? m.mentionedJid[0] : m.quoted ? m.quoted.sender : text.replace(/[^0-9]/g, '') + '@s.whatsapp.net'
         if (!m.mentionedJid[0]) return await conn.sendMessage(m.chat, { text: 'Debes mencionar a alguien para besar'}, {quoted: m })
         const tenorResults = await getTenorResults({

@@ -1,16 +1,19 @@
-import makeWASocket, { AnyMessageContent, BufferJSON, DisconnectReason, downloadContentFromMessage, generateWAMessageFromContent, jidDecode, makeCacheableSignalKeyStore, proto, toBuffer, useMultiFileAuthState, UserFacingSocketConfig } from "@whiskeysockets/baileys";
+import makeWASocket, { AnyMessageContent, BufferJSON, DisconnectReason, downloadContentFromMessage, generateWAMessageFromContent, GroupMetadata, jidDecode, makeCacheableSignalKeyStore, proto, toBuffer, useMultiFileAuthState, UserFacingSocketConfig } from '@whiskeySockets/baileys';
 import { bot, conn, mediaUpload, MessageSerialize, WAMediaUpload } from "../types";
 import chalk from "chalk";
 import { getRandom, isURL, sleep, store } from "../lib/functions/functions";
-import { serialize } from ".";
+import { cache, dataSessions, metadataCache, serialize } from ".";
 import { handle, welcomes } from "../handler";
 import pino from "pino";
 import fs from 'fs'
 import { Boom } from "@hapi/boom";
 import qrcode from 'qrcode';
 import { Readable } from "stream";
+import ws from 'ws';
+import { fromBuffer } from "file-type";
 
-export const dataSessions = new Map<string, bot>()
+const messageQueue = []
+
 export const getMain = (name: string): bot | undefined => {
     for (const session of dataSessions.values()) {
         if (session.isMain === true) {
@@ -19,152 +22,176 @@ export const getMain = (name: string): bot | undefined => {
       }
       return undefined
 }
-export class client {
+export function getSockets(): string[] {
+    const socketActive: string[] = []
 
+    dataSessions.forEach((session, name) => {
+        if (session.socket?.ws.socket) {
+          if (session.isMain === true) {
+            socketActive.push(name + ' (main)')
+          } else {
+            socketActive.push(name)
+          }
+        }
+    })
+
+    return socketActive
+}
+
+export class client {
     constructor() {}
     async connect(config: Partial<UserFacingSocketConfig>, name: string, isMain: boolean, pairingCode?: boolean, m?: MessageSerialize): Promise<void> {
-        const path = isMain ? './auth' : './jadibot/' + name
-        const { saveCreds, state } = await useMultiFileAuthState(path)
-        const conn: conn = makeWASocket({auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "silent" }).child({ level: "silent" })) },...config})
-        for (const key of Object.keys(conn)) {
-            if (key in this) {
-              (this as client)[key] = (conn as conn)[key]
-            }
-        }
-        let sessions = dataSessions.get(name)
-        if (!sessions) {
-            sessions = {
-                auth: path,
-                isMain: isMain,
-                socket: this as unknown as client,
-            }
-            dataSessions.set(name, sessions)
-        }
-        const main = getMain(name)
-        console.log(sessions)
-        let isInit
-        store.bind(conn.ev)
-        sessions.socket.ev.on('messages.upsert', async ({ messages }) => {
-            for (const message of messages) {
-                if (!sessions.socket.authState.creds?.myAppStateKeyId) return
-                if (message.messageStubParameters != undefined && message.messageStubParameters[0] === "Message absent from node") await sessions.socket.sendMessageAck(JSON.parse(message.messageStubParameters[1], BufferJSON.reviver))
-                if (message.message?.protocolMessage?.type === 3 || message?.messageStubType) return await welcomes(this, message)
-                serialize.message(sessions.socket, message).then((serialize: MessageSerialize) => {
-                handle(this, serialize)})
-            }
-        })
-        let qrtimeout = 0
-        let allGroupMetadata
-        sessions.socket.ev.on('connection.update', async (update) => {
-            const { lastDisconnect, qr, connection, isNewLogin, receivedPendingNotifications } = update
-            if (isNewLogin) isInit = false
-            if (receivedPendingNotifications && !sessions.socket.authState.creds?.myAppStateKeyId) {
-              sessions.socket.ev.flush()
-            }
-            if (isMain) {
-                if (pairingCode) throw new Error('pairing code its not supported in main sessions!!')
-                if (qr !== undefined) {
-                  console.log(chalk.greenBright('[INFO] ') + `escanea este qr para registrar a ${name} como bot principal`)
+      const path = isMain ? './auth' : './jadibot/' + name
+      const { saveCreds, state } = await useMultiFileAuthState(path)
+      const conn: conn = makeWASocket({auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "silent" }).child({ level: "silent" })) },...config})
+
+      Object.assign(this, conn)
+      let sessions = dataSessions.get(name)
+      let allGroupMetadata: Record<string, GroupMetadata>
+      if (!sessions) {
+        sessions = {
+          auth: path,
+          isMain: isMain,
+          socket: this as unknown as client,
+          groupsMetadata: allGroupMetadata,
+      }
+      dataSessions.set(name, sessions)     
+      }
+      
+      
+      let isInit
+      if (sessions && sessions.socket) {
+        store.bind(sessions.socket.ev)
+     
+
+      sessions.socket.ev.on('messages.upsert', async (chatUpdate) => {
+          for (const message of chatUpdate.messages) {
+              if (message.messageStubParameters != undefined && message.messageStubParameters[0] === "Message absent from node") await sessions.socket.sendMessageAck(JSON.parse(message.messageStubParameters[1], BufferJSON.reviver))
+              if (message.message?.protocolMessage?.type === 3 || message?.messageStubType) return await welcomes(this, message)
+              serialize.message(sessions.socket, message).then((serialize: MessageSerialize) => {
+              handle(this, serialize)})
+          }
+      })
+      
+      
+
+      sessions.socket.ev.on('connection.update', async (update) => {
+          const { lastDisconnect, qr, connection, isNewLogin, receivedPendingNotifications } = update
+          if (isNewLogin) isInit = false
+          const reason = new Boom(lastDisconnect?.error)?.output.statusCode
+          if (isMain) {
+              const main = getMain(name) 
+              if (pairingCode) throw new Error('pairing code its not supported in main sessions!!')
+              if (receivedPendingNotifications && !sessions.socket.authState.creds?.myAppStateKeyId ) {
+                  sessions.socket.ev.flush()
+              }
+              if (qr !== undefined) {
+                console.log(chalk.greenBright('[INFO] ') +` escanea este qr para registrar a ${name} como bot principal`)
+              }
+              if (connection === 'close') {
+                if (reason === 405) {
+                  fs.unlinkSync(path + 'creds.json')
+                  console.log(chalk.redBright('[ERROR] ') + `algo fallo en la autenticacion de ${name}... reiniciando`)
+                  process.exit(0)
+                } else if (reason === DisconnectReason.restartRequired) {
+                  console.log(chalk.greenBright('[CLIENT] ') + `el bot ${name} nesesita reiniciar, reiniciando...`)
+                  await this.connect(config, name, isMain, pairingCode).catch((error) => console.log(error))
+                } else if (reason === DisconnectReason.timedOut) {
+                  console.log(chalk.yellowBright('[CLIENT] ') + `el bot ${name} su conexion expiro, reiniciando...`)
+                  await this.connect(config, name, isMain, pairingCode).catch((error) => console.log(error))
+                } else if (reason === DisconnectReason.loggedOut) {
+                  fs.unlinkSync(path + 'creds.json')
+                  console.log(chalk.yellowBright('[CLIENT] ') + `el bot ${name} se ha desconectado!!`)
+                } else if (reason === DisconnectReason.badSession) {
+                  fs.unlinkSync(path + 'creds.json')
+                  console.log(chalk.yellowBright('[CLIENT] ') + `el session de ${name} esta corrupta!!`)
+                } else if (reason === DisconnectReason.connectionClosed) {
+                  console.log(chalk.yellowBright('[CLIENT] ') + `el bot ${name} fue cerrada!!`)
+                  await this.connect(config, name, isMain, pairingCode).catch((error) => console.log(error))
+                } else if (reason === DisconnectReason.connectionLost) {
+                  console.log(chalk.yellowBright('[CLIENT] ') + `el bot ${name} perdio la conexion!! reiniciando...`)
+                  await this.connect(config, name, isMain, pairingCode).catch((error) => console.log(error))
+                } else if (reason === DisconnectReason.connectionReplaced) {
+                  console.log(chalk.yellowBright('[CLIENT] ') + `el bot ${name} la conexion fue remplazada`)
+                } else {
+                  console.log(chalk.yellowBright('[CLIENT] ') + `el bot ${name} se desconecto por un error inesperado!!. reiniciando...`)
+                  await this.connect(config, name, isMain, pairingCode).catch((error) => console.log(error))
+                }}
+                if (connection === 'open') {
+                  console.log(chalk.greenBright('[CLIENT] ') + `el bot ${name} se conecto con exito!!`)
+                  globalThis.main = sessions.socket.decodeJid(sessions.socket.user.id)
+                  if (!main.groupsMetadata)await main.socket.groupFetchAllParticipating().then((data)=>{ main.groupsMetadata = data})
                 }
-                if (connection === 'close') {
-                  let reason = new Boom(lastDisconnect?.error)?.output.statusCode
-                  if (reason === 405) {
-                    fs.unlinkSync(path + 'creds.json')
-                    console.log(chalk.redBright('[ERROR] ') + `algo fallo en la autenticacion de ${name}... reiniciando`)
-                    process.exit(0)
-                  } else if (reason === DisconnectReason.restartRequired) {
-                    console.log(chalk.greenBright('[CLIENT] ') + `el bot ${name} nesesita reiniciar, reiniciando...`)
-                    await this.connect(config, name, isMain, pairingCode).catch((error) => console.log(error))
-                  } else if (reason === DisconnectReason.timedOut) {
-                    console.log(chalk.yellowBright('[CLIENT] ') + `el bot ${name} su conexion expiro, reiniciando...`)
-                    await this.connect(config, name, isMain, pairingCode).catch((error) => console.log(error))
-                  } else if (reason === DisconnectReason.loggedOut) {
-                    fs.unlinkSync(path + 'creds.json')
-                    console.log(chalk.yellowBright('[CLIENT] ') + `el bot ${name} se ha desconectado!!`)
-                  } else if (reason === DisconnectReason.badSession) {
-                    fs.unlinkSync(path + 'creds.json')
-                    console.log(chalk.yellowBright('[CLIENT] ') + `el session de ${name} esta corrupta!!`)
-                  } else if (reason === DisconnectReason.connectionClosed) {
-                    console.log(chalk.yellowBright('[CLIENT] ') + `el bot ${name} fue cerrada!!`)
-                    await this.connect(config, name, isMain, pairingCode).catch((error) => console.log(error))
-                  } else if (reason === DisconnectReason.connectionLost) {
-                    console.log(chalk.yellowBright('[CLIENT] ') + `el bot ${name} perdio la conexion!! reiniciando...`)
-                    await this.connect(config, name, isMain, pairingCode).catch((error) => console.log(error))
-                  } else if (reason === DisconnectReason.connectionReplaced) {
-                    console.log(chalk.yellowBright('[CLIENT] ') + `el bot ${name} la conexion fue remplazada`)
-                  } else {
-                    console.log(chalk.yellowBright('[CLIENT] ') + `el bot ${name} se desconecto por un error inesperado!!. reiniciando...`)
-                    await this.connect(config, name, isMain, pairingCode).catch((error) => console.log(error))
-                  }}
-                  if (connection === 'open') {
-                    console.log(chalk.greenBright('[CLIENT] ') + `el bot ${name} se conecto con exito!!`)
-                    sessions.socket.groupFetchAllParticipating().then((data)=>{ allGroupMetadata = data})
-                  }
-                } else if (!isMain) {
-                  if (!main || !main.socket || main.socket === undefined) throw new Error('no main socket found!!')
-                  if (qr && !pairingCode) {
-                    main.socket.sendImage(m.chat, await qrcode.toBuffer(qr, { scale: 8}), 'qr code', m)
-                  }
-                  if (qr && pairingCode) {
-                    main.socket.sendText(m.chat, 'en breve recibiras tu codigo', m)
-                    const code = await sessions.socket.requestPairingCode(m.sender.split('@')[0])
-                    await sleep(5000)
-                    main.socket.sendText(m.chat, code, m)
-                  }
-                  if (connection === 'close') {
-                    
-                    let reason = new Boom(lastDisconnect?.error)?.output.statusCode
-                    if (reason === 405) {
-                        fs.unlinkSync(path + '/creds.json')
-                        main.socket.sendText(m.chat, `❗️ algo fallo en la autenticacion de @${name}\nReenvia el comando`, m, { mentions: [m.sender] })
-                    } else if (reason === DisconnectReason.restartRequired) {
-                        await this.connect(config, name, isMain, pairingCode).catch((error) => console.log(error))
-                    } else if (reason === DisconnectReason.timedOut) {
-                        main.socket.sendText(m.chat, `el bot @${name} su conexion expiro, reiniciando...`, m, { mentions: [m.sender] })
-                        await this.connect(config, name, isMain, pairingCode).catch((error) => console.log(error))
-                    } else if (reason === DisconnectReason.loggedOut) {
-                        fs.unlinkSync(path + 'creds.json')
-                        main.socket.sendText(m.chat, `el bot @${name} se ha desconectado!!`, m, { mentions: [m.sender] })
-                    } else if (reason === DisconnectReason.badSession) {
-                        main.socket.sendText(m.chat, `el session de @${name} esta corrupta!!`, m, { mentions: [m.sender] })
-                    } else if (reason === DisconnectReason.connectionClosed) {
-                        main.socket.sendText(m.chat, `la conexion de @${name} fue cerrada!!`, m, { mentions: [m.sender] })
-                        await this.connect(config, name, isMain, pairingCode).catch((error) => console.log(error))
-                    } else if (reason === DisconnectReason.connectionLost) {
-                        main.socket.sendText(m.chat, `el bot @${name} perdio la conexion!! reiniciando...`, m, { mentions: [m.sender] })
-                        await this.connect(config, name, isMain, pairingCode).catch((error) => console.log(error))
-                    } else if (reason === DisconnectReason.connectionReplaced) {
-                        main.socket.sendText(m.chat, `la conexion fue remplazada`, m, { mentions: [m.sender] })
-                    } else {
-                        main.socket.sendText(m.chat, `el bot @${name} se desconecto por un error inesperado!!. reiniciando...`, m, { mentions: [m.sender] })
-                        await this.connect(config, name, isMain, pairingCode).catch((error) => console.log(error))
-                    }
-                  }
-                  if (connection === 'open') {
-                      main.socket.sendText(m.chat, `el bot @${name} se conecto con exito!!`, m, { mentions: [m.sender] })
-                      sessions.socket.groupFetchAllParticipating().then((data)=>{ allGroupMetadata = data})
-                  }}
-        })
-        if (!isMain) {
-            setInterval(async () => {
-                if (!sessions.socket?.user) {
-                    try {
-                        sessions.socket?.ws?.close()
-                    } catch (error) {
-                        console.log(error)
-                    }
-                    sessions.socket.ev.removeAllListeners('creds.update')
-                    sessions.socket.ev.removeAllListeners('messages.upsert')
-                    sessions.socket.ev.removeAllListeners('connection.update')
-                    sleep(3000)
-                    sessions = null // release the socket
-                    dataSessions.delete(name)
+              } else if (!isMain) {  
+                const main = getMain(name)    
+                if (!main || !main.socket) throw new Error('no main socket found!!')
+                if (qr && !pairingCode) {
+                  main.socket.sendImage(m.chat, await qrcode.toBuffer(qr, { scale: 8}), 'qr code', m)
                 }
+                if  (pairingCode && qr) {
+                  main.socket.sendText(m.chat, 'en breve recibiras tu codigo', m)
+                  const code = await sessions.socket.requestPairingCode(m.sender.split('@')[0])
+                  await sleep(5000)
+                  main.socket.sendText(m.chat, code, m)
+                }    
+                if (update.connection === 'close') {
                   
-              }, 60000)
-        }
-        sessions.socket.ev.on('creds.update', saveCreds)
+                  let reason = new Boom(update.lastDisconnect?.error)?.output.statusCode
+                  if (reason === 405) {
+                      fs.unlinkSync(path + '/creds.json')
+                      main.socket.sendText(m.chat, `❗️ algo fallo en la autenticacion de @${name}\nReenvia el comando`, m, { mentions: [m.sender] })
+                  } else if (reason === DisconnectReason.restartRequired) {
+                      await this.connect(config, m.sender.split('@')[0], false, pairingCode, m).catch((error) => console.log(error))
+                  } else if (reason === DisconnectReason.timedOut) {
+                      main.socket.sendText(m.chat, `el bot @${name} su conexion expiro, reiniciando...`, m, { mentions: [m.sender] })
+                      await this.connect(config, m.sender.split('@')[0], false, pairingCode, m).catch((error) => console.log(error))
+                  } else if (reason === DisconnectReason.loggedOut) {
+                      fs.unlinkSync(path + '/creds.json')
+                      main.socket.sendText(m.chat, `el bot @${name} se ha desconectado!!`, m, { mentions: [m.sender] })
+                  } else if (reason === DisconnectReason.badSession) {
+                      main.socket.sendText(m.chat, `el session de @${name} esta corrupta!!`, m, { mentions: [m.sender] })
+                  } else if (reason === DisconnectReason.connectionClosed) {
+                      main.socket.sendText(m.chat, `la conexion de @${name} fue cerrada!!`, m, { mentions: [m.sender] })
+                      await this.connect(config, m.sender.split('@')[0], false, pairingCode, m).catch((error) => console.log(error))
+                  } else if (reason === DisconnectReason.connectionLost) {
+                      main.socket.sendText(m.chat, `el bot @${name} perdio la conexion!! reiniciando...`, m, { mentions: [m.sender] })
+                      await this.connect(config, m.sender.split('@')[0], false, pairingCode, m).catch((error) => console.log(error))
+                  } else if (reason === DisconnectReason.connectionReplaced) {
+                      main.socket.sendText(m.chat, `la conexion fue remplazada`, m, { mentions: [m.sender] })
+                  } else {
+                      main.socket.sendText(m.chat, `el bot @${name} se desconecto por un error inesperado!!. reiniciando...`, m, { mentions: [m.sender] })
+                      await this.connect(config, m.sender.split('@')[0], false, pairingCode, m).catch((error) => console.log(error))
+                  }
+                }
+                if (update.connection === 'open') {
+                    main.socket.sendText(m.chat, `el bot @${name} se conecto con exito!!`, m, { mentions: [m.sender] })
+                    if (!sessions.groupsMetadata) await sessions.socket.groupFetchAllParticipating().then((data)=>{ sessions.groupsMetadata = data})
+                }
+              }
+      })
+      if (!sessions.isMain) {
+          const interval = setInterval(() => {// check if the socket is active in subbots if not close it
+              if (sessions.socket === undefined || sessions.socket === null) return
+              if (!sessions.socket?.user || !sessions.socket?.ws.socket === null) {
+                  try {
+                      sessions.socket?.ws?.close()
+                  } catch (error) {
+                      console.log(error)
+                  }
+                  sessions.socket.ev.removeAllListeners('creds.update')
+                  sessions.socket.ev.removeAllListeners('messages.upsert')
+                  sessions.socket.ev.removeAllListeners('connection.update')
+                  sleep(1000)
+                  sessions = null // release the socket
+              }
+                
+            }, 60000)
+      }
+      
+
+      sessions.socket.ev.on('creds.update', saveCreds)
     }
+  }
     public decodeJid = (jid: string): string => {
         if (/:\d+@/gi.test(jid)) {
             const decode = jidDecode(jid)
@@ -173,6 +200,27 @@ export class client {
     }
     public sendText =  (jid: string, text: string, quoted?: proto.IWebMessageInfo, options?: Partial<AnyMessageContent>): Promise<proto.WebMessageInfo> => {
         return this.sendMessage(jid, { text: text, ...options }, { quoted: quoted })
+    }
+    public sendADMessage = (jid: string, text: string, newsLetterName: string, title: string, url: string, image: string , renderLargerThumbnail?: boolean, quoted?: proto.IWebMessageInfo, options?: Partial<AnyMessageContent>): Promise<proto.WebMessageInfo> => {
+      return this.sendMessage(jid, { text: text, contextInfo: {
+        isForwarded: true,
+        forwardedNewsletterMessageInfo: {
+          newsletterJid: '120363303707275621@newsletter',
+          newsletterName: newsLetterName,
+          serverMessageId: -1,
+          contentType: 1,
+        },
+        externalAdReply: {
+          title: title,
+          body: null,
+          mediaType: 1,
+          sourceUrl: url,
+          renderLargerThumbnail: renderLargerThumbnail,
+          thumbnailUrl: image,
+          containsAutoReply: true,
+          showAdAttribution: true
+        }, ...options
+      }}, { quoted: quoted })
     }
     public fakeReply = async (jid: string, text: string, tag: string, text2: string): Promise<string> => {
         const message = generateWAMessageFromContent(jid, {
@@ -201,10 +249,11 @@ export class client {
         if (!fs.existsSync(folder)) fs.mkdirSync(folder)
           const mime = m?.message[m.type]?.mimetype || ""
           const messageType = mime?.split("/")[0]
-          const pathfile = folder + `/${getRandom(20)}_${Date.now()}`
           const stream = await downloadContentFromMessage(m.message[m.type], messageType)
           let buffer = await toBuffer(stream)
-          fs.writeFileSync(pathfile + (attachExtension ? `.${mime.split("/")[1]}` : ""), buffer)
+          const type = await fromBuffer(buffer);
+          const pathfile = folder + `/${getRandom(10)}_${Date.now()}.${type.ext}`
+          fs.writeFileSync(pathfile, buffer)
           buffer = null
           return pathfile
     }
@@ -241,9 +290,27 @@ export class client {
         }
         return this.sendMessage(jid, { audio: media, ptt: ppt ? ppt : false, ...options }, { quoted: quoted ? quoted : null })
       }
-    public sendReaction = (jid: string, emoji: string, m: proto.IMessageKey): Promise<proto.WebMessageInfo> => {
+    public sendReaction = (jid: string, emoji: string, m: proto.IMessageKey): Promise<proto.WebMessageInfo | undefined> => {
         return this.sendMessage(jid, { react: { text: emoji, key: m } })
     }
+    public async getMetadata(jid: string): Promise<GroupMetadata> {
+      let instance = metadataCache.getInstance()
+      let meta = instance!.getMeta(jid)
+      if (!meta) {
+        meta = await this!.groupMetadata(jid)
+        instance!.saveMeta(jid, meta)
+      }
+      return meta!
+    }
+  public getProfilePicFromServer = async (jid: string) => {
+    let data = cache.get(jid)
+    if (!data) {
+      console.log("Fetching profile picture from server")
+      data = await this.profilePictureUrl(jid, 'image').catch(() => 'https://i.ibb.co/Rbb2yXn/sinfoto.jpg')
+      cache.set(jid, data)
+    }
+    return data!
+  } 
 
   public user: conn['user']
   public ev: conn['ev']
@@ -337,3 +404,5 @@ export class client {
   public waitForConnectionUpdate: conn["waitForConnectionUpdate"]
     
 }
+
+

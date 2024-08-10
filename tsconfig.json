@@ -9,7 +9,7 @@
       "forceConsistentCasingInFileNames": true,
       "lib": ["ES2020", "ESNext.Array", "DOM"],
       "module": "CommonJS",
-      "moduleResolution": "node",
+      "moduleResolution": "Node",
       "noImplicitThis": true,
       "outDir": "dist",
       "removeComments": true,

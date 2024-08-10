@@ -1,21 +1,23 @@
-
 import { client } from "../core"
-import { MessageSerialize } from "../types"
+import { commands, MessageSerialize } from "../types"
 import { posts } from "../lib/functions/rule34"
-import { generateWAMessageFromContent, prepareWAMessageMedia, proto } from "@whiskeysockets/baileys"
+import { generateWAMessageFromContent, prepareWAMessageMedia, proto } from '@whiskeySockets/baileys'
 import { pickRandom } from "../lib/functions/functions"
 
-export = {
+const Itags = ['1boy', 'femboy', 'male_only', 'yaoi', 'ilovementits', 'gay', 'futanari', 'lesbian', 'futa_on_male', 'futa_on_femboy', 'futa_on_gay', 'male_focus'];
+
+export = <commands>{
     name: 'rule34',
     description: 'si existe...',
     groupOnly: true, 
     nsfw: true,
-    async handle(conn: client, m: MessageSerialize, {prefix, args, isAdmin, isBotAdmin}) {
+    category: 'nsfw',
+    async handle(conn: client, m: MessageSerialize, {prefix, isAdmin, isBotAdmin}) {
         try {
         try {
-        if (!args.join('_')) return conn.sendMessage(m.chat, { text: 'debes escribir algo para buscar' }, { quoted: m })
-        console.log(args.join('_'))
-        const response = await posts({tags:[args.join('_')], pid: 1, limit: 100})
+        if (!m.args.join('_')) return conn.sendMessage(m.chat, { text: 'debes escribir algo para buscar' }, { quoted: m })
+        console.log(m.args.join('_'))
+        const response = await posts({tags:[m.args.join('_')], pid: 1, limit: 100})
         const link = response.posts[Math.floor(Math.random() * 100)]
         let retry: number
         console.log(link)
@@ -28,7 +30,7 @@ export = {
                     "name": "quick_reply",
                     "buttonParamsJson": JSON.stringify({
                         display_text: "（囲唄コ）𝚛𝚎𝚒𝚗𝚝𝚎𝚗𝚝𝚊𝚛?",
-                        id: '.rule34 ' + args.join('_'),
+                        id: '.rule34 ' + m.args.join('_'),
                     })
                 }
             ]
@@ -220,7 +222,7 @@ export = {
     
         await conn.relayMessage(m.chat, dick.message, { messageId: dick.key.id })
         }} catch (e) {
-            const response = await posts({tags:[args.join('_')], pid: 1, limit: 50})
+            const response = await posts({tags:[m.args.join('_')], pid: 1, limit: 50})
             const link = response.posts[Math.floor(Math.random() * 25)]
             console.log(link)
         

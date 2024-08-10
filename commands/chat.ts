@@ -21,12 +21,9 @@ export = {
         await conn.sendPresenceUpdate('composing', m.chat)
         if (m?.type === 'imageMessage' || m?.quoted?.type === 'imageMessage') {
             const Imedia = m.quoted ? await conn.downloadAndSaveMediaMessage(m.quoted) : await conn.downloadAndSaveMediaMessage(m)
-
             const result = await telegraPh(Imedia)
-            console.log(result)
             return await conn.sendMessage(m.chat, { text: await send(m, result), mentions: [m.sender] }, { quoted: fcontact })
         }
-
     
         return await conn.sendMessage(m.chat, { text: await send(m), mentions: [m.sender] }, { quoted: fcontact })
     }

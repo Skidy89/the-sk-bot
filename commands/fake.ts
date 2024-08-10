@@ -1,20 +1,23 @@
-import { generateWAMessageFromContent } from "@whiskeysockets/baileys"
-import { MessageSerialize } from "../types/"
+import { generateWAMessageFromContent } from '@whiskeySockets/baileys'
+import { commands, MessageSerialize } from "../types/"
 import { client } from "../core/client"
 
-export = {
+const str = `ᴜꜱᴏ ᴄᴏʀʀᴇᴄᴛᴏ
+.fake @0 | hola | whatsapp?
+>(puedes mencionar a alguien. el mensaje falso, el mensaje real)`
+
+export = <commands>{
     name: `fake`,
     description: `envia un mensaje falso`,
     groupOnly: true,
     example: `.fake @tag | text1 | text2`,
+    category: "diversión",
     async handle(conn: client, m: MessageSerialize) {
         var text = m.body.substring(m.body.indexOf(" ") + 1)
         let tag = text.split("|")[0]
         let text1 = text.split("|")[1]
         let text2 = text.split("|")[2] 
-        const str = `ᴜꜱᴏ ᴄᴏʀʀᴇᴄᴛᴏ
-.fake @0 | hola | whatsapp?
->(puedes mencionar a alguien. el mensaje falso, el mensaje real)`
+        
 
         if (!tag.startsWith('@') ||!tag || !text1 || !text2) return conn.sendMessage(m.chat, { text: str, mentions: ['0@s.whatsapp.net', m.sender] }, { quoted: m })
         tag = tag.replace("@", "").replace(" ", "") + "@s.whatsapp.net"
